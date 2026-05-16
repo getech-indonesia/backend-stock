@@ -12,6 +12,27 @@ enum Role {
     ADMIN
 }
 
+enum AssetType {
+    STOCK
+    ETF
+    REIT
+    BOND
+    MUTUAL_FUND
+    CRYPTO
+}
+
+enum ExchangeType {
+    STOCK
+    CRYPTO
+    OTC
+}
+
+enum CompanyStatus {
+    ACTIVE
+    DELISTED
+    SUSPENDED
+}
+
 model User {
     id       String @id @default(uuid())
     email    String @unique
@@ -23,4 +44,122 @@ model User {
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
+}
+
+model Country {
+    id String @id @default(uuid())
+
+    name     String
+    code     String @unique
+    currency String
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    exchanges Exchange[]
+    companies Company[]
+}
+
+model Exchange {
+    id           String       @id @default(uuid())
+    code         String       @unique
+    name         String
+    timezone     String
+    exchangeType ExchangeType
+    countryId    String
+    createdAt    DateTime     @default(now())
+    updatedAt    DateTime     @updatedAt
+    country      Country      @relation(fields: [countryId], references: [id])
+    listings     Listing[]
+}
+
+model Sector {
+    id         String     @id @default(uuid())
+    name       String     @unique
+    createdAt  DateTime   @default(now())
+    industries Industry[]
+}
+
+model Industry {
+    id        String    @id @default(uuid())
+    name      String
+    sectorId  String
+    sector    Sector    @relation(fields: [sectorId], references: [id])
+    companies Company[]
+}
+
+model Company {
+    id            String        @id @default(uuid())
+    legalName     String
+    displayName   String
+    description   String?
+    foundedYear   Int?
+    website       String?
+    logoUrl       String?
+    employeeCount Int?
+    ceo           String?
+    headquarters  String?
+    status        CompanyStatus @default(ACTIVE)
+    countryId     String
+    industryId    String
+    createdAt     DateTime      @default(now())
+    updatedAt     DateTime      @updatedAt
+    country       Country       @relation(fields: [countryId], references: [id])
+    industry      Industry      @relation(fields: [industryId], references: [id])
+    listings      Listing[]
+}
+
+model Listing {
+    id         String        @id @default(uuid())
+    symbol     String
+    isin       String?
+    cusip      String?
+    assetType  AssetType
+    companyId  String
+    exchangeId String
+    createdAt  DateTime      @default(now())
+    updatedAt  DateTime      @updatedAt
+    company    Company       @relation(fields: [companyId], references: [id])
+    exchange   Exchange      @relation(fields: [exchangeId], references: [id])
+    indexes    IndexMember[]
+    stockTags  StockTag[]
+
+    @@unique([symbol, exchangeId])
+}
+
+model MarketIndex {
+    id          String        @id @default(uuid())
+    code        String        @unique
+    name        String
+    description String?
+    createdAt   DateTime      @default(now())
+    members     IndexMember[]
+}
+
+model IndexMember {
+    id        String      @id @default(uuid())
+    listingId String
+    indexId   String
+    joinedAt  DateTime?
+    removedAt DateTime?
+    listing   Listing     @relation(fields: [listingId], references: [id])
+    index     MarketIndex @relation(fields: [indexId], references: [id])
+
+    @@unique([listingId, indexId])
+}
+
+model Tag {
+    id     String     @id @default(uuid())
+    name   String     @unique
+    stocks StockTag[]
+}
+
+model StockTag {
+    id        String  @id @default(uuid())
+    tagId     String
+    listingId String
+    tag       Tag     @relation(fields: [tagId], references: [id])
+    listing   Listing @relation(fields: [listingId], references: [id])
+
+    @@unique([tagId, listingId])
 }
