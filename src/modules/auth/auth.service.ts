@@ -21,7 +21,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async register(dto: RegisterDto) {
     const userExist = await this.prisma.user.findUnique({
@@ -46,15 +46,29 @@ export class AuthService {
       },
     });
 
-    return this.generateTokens(user.id, user.email);
+    const tokens = await this.generateTokens(
+      user.id,
+      user.email,
+    );
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+      },
+      tokens
+    };
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({
-      where: {
-        email: dto.email,
-      },
-    });
+    const user =
+      await this.prisma.user.findUnique({
+        where: {
+          email: dto.email,
+        },
+      });
 
     if (!user) {
       throw new UnauthorizedException(
@@ -62,10 +76,11 @@ export class AuthService {
       );
     }
 
-    const passwordMatch = await compareData(
-      dto.password,
-      user.password,
-    );
+    const passwordMatch =
+      await compareData(
+        dto.password,
+        user.password,
+      );
 
     if (!passwordMatch) {
       throw new UnauthorizedException(
@@ -73,7 +88,21 @@ export class AuthService {
       );
     }
 
-    return this.generateTokens(user.id, user.email);
+    const tokens =
+      await this.generateTokens(
+        user.id,
+        user.email,
+      );
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+      },
+      tokens,
+    };
   }
 
   async generateTokens(
