@@ -18,11 +18,14 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "stock:sync": "nest start --entryFile stock-sync",
     "prisma:generate": "prisma generate --config src/prisma/prisma.config.ts",
     "prisma:migrate": "prisma migrate dev --config src/prisma/prisma.config.ts",
     "prisma:studio": "prisma studio --config src/prisma/prisma.config.ts",
-    "prisma:push": "prisma db push --config src/prisma/prisma.config.ts"
+    "prisma:push": "prisma db push --config src/prisma/prisma.config.ts",
+    "stock:sync:id": "nest start --entryFile stock-sync-id",
+    "stock:test:ajaib": "ts-node test-ajaib-scrape.ts",
+    "stock:sync:us": "nest start --entryFile stock-sync-us",
+    "stock:sync:global": "nest start --entryFile stock-sync-global"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -33,6 +36,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "axios": "^1.16.1",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",

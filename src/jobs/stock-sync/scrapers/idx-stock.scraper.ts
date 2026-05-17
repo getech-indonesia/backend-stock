@@ -1,0 +1,281 @@
+import {
+    Injectable,
+    Logger,
+} from '@nestjs/common';
+
+import axios, { AxiosError } from 'axios';
+
+import { RawStockDto } from '../dto/raw-stock.dto';
+
+type EmitenApiItem = {
+    listing?: {
+        symbol?: string;
+    };
+    market?: {
+        icon_url?: string;
+        name?: string;
+    };
+    management?: {
+        directors?: Array<{
+            Nama?: string;
+            Jabatan?: string;
+        }>;
+    };
+    company?: {
+        legalName?: string;
+        displayName?: string;
+        description?: string;
+        website?: string;
+        logoUrl?: string;
+        ceo?: string;
+        foundedYear?: number;
+        employeeCount?: number;
+        headquarters?: string;
+    };
+    country?: {
+        code?: string;
+    };
+    sector?: {
+        name?: string;
+    };
+    industry?: {
+        name?: string;
+    };
+};
+
+type EmitenApiResponse = {
+    items?: EmitenApiItem[];
+    status?: string;
+    pagination?: {
+        count?: number;
+        next?: string | null;
+        page?: number;
+        page_size?: number;
+    };
+};
+
+@Injectable()
+export class IdxStockScraper {
+
+    private readonly logger =
+        new Logger(
+            IdxStockScraper.name,
+        );
+
+    private readonly EMITEN_API_URL =
+        process.env.EMITEN_API_URL ??
+        'http://127.0.0.1:5000/api/emiten';
+
+    async scrapePage(
+        page: number,
+        pageSize = 20,
+    ): Promise<{
+        stocks: RawStockDto[];
+        hasNext: boolean;
+        page: number;
+        totalCount?: number;
+    }> {
+        this.logger.log(
+            `Fetching emiten page ${page} from Python backend`,
+        );
+
+        let response:
+            Awaited<
+                ReturnType<
+                    typeof axios.get<EmitenApiResponse>
+                >
+            >;
+        try {
+            response =
+                await axios.get<
+                    EmitenApiResponse
+                >(
+                    this.EMITEN_API_URL,
+                    {
+                        params: {
+                            page,
+                            page_size:
+                                pageSize,
+                        },
+                        timeout: 30000,
+                    },
+                );
+        } catch (error) {
+            const axiosError =
+                error as AxiosError;
+            const status =
+                axiosError.response
+                    ?.status;
+            const body =
+                typeof axiosError
+                    .response
+                    ?.data ===
+                    'string'
+                    ? axiosError
+                        .response
+                        ?.data
+                        .slice(
+                            0,
+                            200,
+                        )
+                    : JSON.stringify(
+                        axiosError
+                            .response
+                            ?.data,
+                    ).slice(
+                        0,
+                        200,
+                    );
+
+            this.logger.error(
+                `Emiten API request failed on page ${page}. status=${status ?? 'N/A'} body=${body ?? 'N/A'}`,
+            );
+            throw error;
+        }
+
+        const rows =
+            response.data?.items ??
+            [];
+        const pagination =
+            response.data?.pagination;
+
+        this.logger.log(
+            `Emiten API page ${page} fetched: ${rows.length} stocks`,
+        );
+
+        const stocks =
+            rows.map(
+                (
+                    row,
+                ): RawStockDto => {
+                    const directors =
+                        row.management
+                            ?.directors ??
+                        [];
+                    const ceoFromDirectors =
+                        directors.find(
+                            (
+                                director,
+                            ) =>
+                                (
+                                    director.Jabatan ??
+                                    ''
+                                )
+                                    .toUpperCase()
+                                    .includes(
+                                        'PRESIDEN DIREKTUR',
+                                    ),
+                        )?.Nama ??
+                        directors[0]
+                            ?.Nama;
+
+                    return {
+                        symbol:
+                            row.listing
+                                ?.symbol ??
+                            '',
+                        companyName:
+                            row.company
+                                ?.displayName ??
+                            row.company
+                                ?.legalName ??
+                            row.market
+                                ?.name ??
+                            row.listing
+                                ?.symbol ??
+                            '',
+                        legalName:
+                            row.company
+                                ?.legalName,
+                        displayName:
+                            row.company
+                                ?.displayName ??
+                            row.market
+                                ?.name,
+                        exchangeCode:
+                            'IDX',
+                        countryCode:
+                            row.country
+                                ?.code ??
+                            'ID',
+                        sectorName:
+                            row.sector
+                                ?.name,
+                        industryName:
+                            row.industry
+                                ?.name,
+                        website:
+                            this.normalizeWebsite(
+                                row.company
+                                    ?.website,
+                            ),
+                        description:
+                            row.company
+                                ?.description,
+                        logoUrl:
+                            row.market
+                                ?.icon_url ??
+                            row.company
+                                ?.logoUrl,
+                        ceo:
+                            row.company
+                                ?.ceo ??
+                            ceoFromDirectors,
+                        foundedYear:
+                            row.company
+                                ?.foundedYear,
+                        employeeCount:
+                            row.company
+                                ?.employeeCount,
+                        headquarters:
+                            row.company
+                                ?.headquarters,
+                    };
+                },
+            );
+
+        return {
+            stocks:
+                stocks.filter(
+                    (
+                        stock,
+                    ) =>
+                        Boolean(
+                            stock.symbol,
+                        ),
+                ),
+            hasNext:
+                Boolean(
+                    pagination?.next,
+                ),
+            page:
+                pagination?.page ??
+                page,
+            totalCount:
+                pagination?.count,
+        };
+    }
+
+    private normalizeWebsite(
+        website?: string,
+    ): string | undefined {
+
+        if (!website) {
+            return undefined;
+        }
+
+        if (
+            website.startsWith(
+                'http://',
+            ) ||
+            website.startsWith(
+                'https://',
+            )
+        ) {
+            return website;
+        }
+
+        return `https://${website}`;
+    }
+
+}
