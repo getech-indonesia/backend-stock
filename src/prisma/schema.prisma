@@ -7,6 +7,10 @@ datasource db {
     provider = "postgresql"
 }
 
+// ============================================================
+// ENUMS
+// ============================================================
+
 enum Role {
     USER
     ADMIN
@@ -33,66 +37,155 @@ enum CompanyStatus {
     SUSPENDED
 }
 
-model User {
-    id       String @id @default(uuid())
-    email    String @unique
-    password String
-    fullName String
-    role     Role   @default(USER)
-
-    refreshToken String?
-
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+enum PeriodType {
+    ANNUAL
+    Q1
+    Q2
+    Q3
+    Q4
+    TTM // Trailing Twelve Months
 }
 
+enum AuditStatus {
+    AUDITED
+    UNAUDITED
+    REVIEWED
+}
+
+enum DividendType {
+    INTERIM
+    FINAL
+    SPECIAL
+    STOCK // Saham bonus
+}
+
+enum ManagementRole {
+    PRESIDENT_DIRECTOR
+    PRESIDENT_COMMISSIONER
+    DIRECTOR
+    COMMISSIONER
+    INDEPENDENT_COMMISSIONER
+    CEO
+    CFO
+    COO
+    CTO
+}
+
+enum ShareholderType {
+    PROMOTER
+    INSTITUTIONAL
+    INSIDER
+    GOVERNMENT
+    FOREIGN
+    PUBLIC
+}
+
+enum CorporateActionType {
+    STOCK_SPLIT
+    REVERSE_SPLIT
+    RIGHTS_ISSUE
+    STOCK_DIVIDEND
+    BUYBACK
+    MERGER
+    ACQUISITION
+    SPIN_OFF
+    DELISTING
+    RELISTING
+    WARRANT_ISSUANCE
+}
+
+enum NoteType {
+    MANAGEMENT_DISCUSSION
+    AUDIT_OPINION
+    RISK_FACTOR
+    BUSINESS_SEGMENT
+    RELATED_PARTY
+    GUIDANCE
+    PRESS_RELEASE
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+    id           String   @id @default(uuid())
+    email        String   @unique
+    password     String
+    fullName     String
+    role         Role     @default(USER)
+    refreshToken String?
+    createdAt    DateTime @default(now())
+    updatedAt    DateTime @updatedAt
+
+    @@map("users")
+}
+
+// ============================================================
+// MASTER DATA
+// ============================================================
+
 model Country {
-    id String @id @default(uuid())
-
-    name     String
-    code     String @unique
-    currency String
-
+    id        String   @id @default(uuid())
+    name      String
+    code      String   @unique // ISO 3166-1 alpha-2: ID, US, GB, JP
+    currency  String // ISO 4217: IDR, USD, GBP, JPY
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 
     exchanges Exchange[]
     companies Company[]
+
+    @@map("countries")
 }
 
 model Exchange {
     id           String       @id @default(uuid())
-    code         String       @unique
+    code         String       @unique // IDX, NYSE, NASDAQ, LSE, TSE
     name         String
-    timezone     String
+    timezone     String // IANA: Asia/Jakarta, America/New_York
     exchangeType ExchangeType
     countryId    String
     createdAt    DateTime     @default(now())
     updatedAt    DateTime     @updatedAt
-    country      Country      @relation(fields: [countryId], references: [id])
-    listings     Listing[]
+
+    country  Country   @relation(fields: [countryId], references: [id])
+    listings Listing[]
+
+    @@map("exchanges")
 }
 
 model Sector {
-    id         String     @id @default(uuid())
-    name       String     @unique
-    createdAt  DateTime   @default(now())
+    id        String   @id @default(uuid())
+    name      String   @unique
+    createdAt DateTime @default(now())
+
     industries Industry[]
+
+    @@map("sectors")
 }
 
 model Industry {
-    id        String    @id @default(uuid())
-    name      String
-    sectorId  String
+    id       String @id @default(uuid())
+    name     String
+    sectorId String
+
     sector    Sector    @relation(fields: [sectorId], references: [id])
     companies Company[]
+
+    @@unique([name, sectorId])
+    @@map("industries")
 }
+
+// ============================================================
+// COMPANY & LISTING
+// ============================================================
 
 model Company {
     id            String        @id @default(uuid())
     legalName     String
     displayName   String
-    description   String?
+    description   String?       @db.Text
     foundedYear   Int?
     website       String?
     logoUrl       String?
@@ -100,66 +193,623 @@ model Company {
     ceo           String?
     headquarters  String?
     status        CompanyStatus @default(ACTIVE)
-    countryId     String
-    industryId    String
-    createdAt     DateTime      @default(now())
-    updatedAt     DateTime      @updatedAt
-    country       Country       @relation(fields: [countryId], references: [id])
-    industry      Industry      @relation(fields: [industryId], references: [id])
-    listings      Listing[]
+
+    // Fiscal year end month (1-12).
+    // Default 12 (Desember). Contoh: Apple = 9 (Sep), Microsoft = 6 (Jun)
+    fiscalYearEndMonth Int @default(12)
+
+    countryId  String
+    industryId String
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    country  Country  @relation(fields: [countryId], references: [id])
+    industry Industry @relation(fields: [industryId], references: [id])
+
+    listings            Listing[]
+    sharesData          SharesData[]
+    incomeStatements    IncomeStatement[]
+    balanceSheets       BalanceSheet[]
+    cashFlowStatements  CashFlowStatement[]
+    valuationRatios     ValuationRatio[]
+    profitabilityRatios ProfitabilityRatio[]
+    liquidityRatios     LiquidityRatio[]
+    efficiencyRatios    EfficiencyRatio[]
+    growthMetrics       GrowthMetric[]
+    dividends           Dividend[]
+    managements         Management[]
+    shareholdings       Shareholding[]
+    corporateActions    CorporateAction[]
+    financialNotes      FinancialNote[]
+    annualReports       AnnualReport[]
+
+    @@map("companies")
 }
 
+// Listing = satu saham di satu bursa tertentu.
+// Satu company bisa punya banyak listing (cross-listing / ADR).
+// Contoh: TLKM di IDX + TLK di NYSE (ADR)
 model Listing {
-    id         String        @id @default(uuid())
-    symbol     String
-    isin       String?
-    cusip      String?
+    id         String    @id @default(uuid())
+    symbol     String // Ticker: BBCA, AAPL, TLK
+    isin       String? // Kode ISIN global (12 karakter)
+    cusip      String? // Kode CUSIP (pasar US)
     assetType  AssetType
+    ipoDate    DateTime?
     companyId  String
     exchangeId String
-    createdAt  DateTime      @default(now())
-    updatedAt  DateTime      @updatedAt
-    company    Company       @relation(fields: [companyId], references: [id])
-    exchange   Exchange      @relation(fields: [exchangeId], references: [id])
-    indexes    IndexMember[]
-    stockTags  StockTag[]
+    createdAt  DateTime  @default(now())
+    updatedAt  DateTime  @updatedAt
+
+    company  Company  @relation(fields: [companyId], references: [id])
+    exchange Exchange @relation(fields: [exchangeId], references: [id])
+
+    // StockPrice relasi ke Listing (bukan Company) supaya harga per-bursa terpisah
+    stockPrices StockPrice[]
 
     @@unique([symbol, exchangeId])
+    @@map("listings")
 }
 
-model MarketIndex {
-    id          String        @id @default(uuid())
-    code        String        @unique
-    name        String
-    description String?
-    createdAt   DateTime      @default(now())
-    members     IndexMember[]
+// ============================================================
+// SHARES DATA
+// ============================================================
+
+model SharesData {
+    id        String   @id @default(uuid())
+    companyId String
+    date      DateTime
+
+    sharesOutstanding   BigInt
+    sharesFloat         BigInt?
+    sharesInstitutional BigInt?
+    sharesInsider       BigInt?
+    marketCap           Decimal @db.Decimal(24, 2)
+    currency            String
+
+    createdAt DateTime @default(now())
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, date])
+    @@map("shares_data")
 }
 
-model IndexMember {
-    id        String      @id @default(uuid())
+// ============================================================
+// INCOME STATEMENT (Laporan Laba Rugi)
+// ============================================================
+
+model IncomeStatement {
+    id            String      @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int? // 1-4, null jika ANNUAL atau TTM
+    periodEndDate DateTime
+    currency      String
+    auditStatus   AuditStatus @default(UNAUDITED)
+
+    // Revenue
+    revenue          Decimal  @db.Decimal(24, 2)
+    revenueGrowthYoY Decimal? @db.Decimal(8, 4)
+
+    // Cost & Gross Profit
+    cogs        Decimal? @db.Decimal(24, 2)
+    grossProfit Decimal? @db.Decimal(24, 2)
+
+    // Operating Expenses
+    operatingExpenses    Decimal? @db.Decimal(24, 2)
+    sellingExpenses      Decimal? @db.Decimal(24, 2)
+    generalAdminExpenses Decimal? @db.Decimal(24, 2)
+    rdExpenses           Decimal? @db.Decimal(24, 2)
+    depreciationAmort    Decimal? @db.Decimal(24, 2)
+
+    // Operating Income
+    ebit            Decimal? @db.Decimal(24, 2)
+    ebitda          Decimal? @db.Decimal(24, 2)
+    operatingIncome Decimal? @db.Decimal(24, 2)
+
+    // Below the line
+    interestExpense         Decimal? @db.Decimal(24, 2)
+    interestIncome          Decimal? @db.Decimal(24, 2)
+    otherNonOperatingIncome Decimal? @db.Decimal(24, 2)
+    pretaxIncome            Decimal? @db.Decimal(24, 2)
+    incomeTaxExpense        Decimal? @db.Decimal(24, 2)
+    effectiveTaxRate        Decimal? @db.Decimal(8, 4)
+
+    // Net Income
+    netIncome             Decimal  @db.Decimal(24, 2)
+    netIncomeAttributable Decimal? @db.Decimal(24, 2)
+    minorityInterest      Decimal? @db.Decimal(24, 2)
+
+    // Per Share
+    eps               Decimal? @db.Decimal(14, 4)
+    epsDiluted        Decimal? @db.Decimal(14, 4)
+    sharesWeightedAvg BigInt?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("income_statements")
+}
+
+// ============================================================
+// BALANCE SHEET (Neraca)
+// ============================================================
+
+model BalanceSheet {
+    id            String      @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int?
+    periodEndDate DateTime
+    currency      String
+    auditStatus   AuditStatus @default(UNAUDITED)
+
+    // Current Assets
+    cash                 Decimal? @db.Decimal(24, 2)
+    shortTermInvestments Decimal? @db.Decimal(24, 2)
+    accountsReceivable   Decimal? @db.Decimal(24, 2)
+    inventory            Decimal? @db.Decimal(24, 2)
+    otherCurrentAssets   Decimal? @db.Decimal(24, 2)
+    totalCurrentAssets   Decimal? @db.Decimal(24, 2)
+
+    // Non-Current Assets
+    propertyPlantEquipment Decimal? @db.Decimal(24, 2)
+    intangibleAssets       Decimal? @db.Decimal(24, 2)
+    goodwill               Decimal? @db.Decimal(24, 2)
+    longTermInvestments    Decimal? @db.Decimal(24, 2)
+    otherNonCurrentAssets  Decimal? @db.Decimal(24, 2)
+    totalNonCurrentAssets  Decimal? @db.Decimal(24, 2)
+    totalAssets            Decimal  @db.Decimal(24, 2)
+
+    // Current Liabilities
+    shortTermDebt           Decimal? @db.Decimal(24, 2)
+    accountsPayable         Decimal? @db.Decimal(24, 2)
+    deferredRevenue         Decimal? @db.Decimal(24, 2)
+    otherCurrentLiabilities Decimal? @db.Decimal(24, 2)
+    totalCurrentLiabilities Decimal? @db.Decimal(24, 2)
+
+    // Non-Current Liabilities
+    longTermDebt               Decimal? @db.Decimal(24, 2)
+    deferredTaxLiabilities     Decimal? @db.Decimal(24, 2)
+    otherNonCurrentLiabilities Decimal? @db.Decimal(24, 2)
+    totalNonCurrentLiabilities Decimal? @db.Decimal(24, 2)
+    totalLiabilities           Decimal? @db.Decimal(24, 2)
+
+    // Equity
+    commonStock             Decimal? @db.Decimal(24, 2)
+    additionalPaidInCapital Decimal? @db.Decimal(24, 2)
+    retainedEarnings        Decimal? @db.Decimal(24, 2)
+    treasuryStock           Decimal? @db.Decimal(24, 2)
+    otherEquity             Decimal? @db.Decimal(24, 2)
+    minorityInterestEquity  Decimal? @db.Decimal(24, 2)
+    totalEquity             Decimal  @db.Decimal(24, 2)
+
+    // Derived
+    bookValuePerShare Decimal? @db.Decimal(14, 4)
+    netDebt           Decimal? @db.Decimal(24, 2)
+    workingCapital    Decimal? @db.Decimal(24, 2)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("balance_sheets")
+}
+
+// ============================================================
+// CASH FLOW STATEMENT (Arus Kas)
+// ============================================================
+
+model CashFlowStatement {
+    id            String      @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int?
+    periodEndDate DateTime
+    currency      String
+    auditStatus   AuditStatus @default(UNAUDITED)
+
+    // Operating Activities
+    netIncomeStart           Decimal? @db.Decimal(24, 2)
+    depreciationAmort        Decimal? @db.Decimal(24, 2)
+    stockBasedCompensation   Decimal? @db.Decimal(24, 2)
+    changeInWorkingCapital   Decimal? @db.Decimal(24, 2)
+    changeInReceivables      Decimal? @db.Decimal(24, 2)
+    changeInInventory        Decimal? @db.Decimal(24, 2)
+    changeInPayables         Decimal? @db.Decimal(24, 2)
+    otherOperatingActivities Decimal? @db.Decimal(24, 2)
+    netCashFromOperations    Decimal  @db.Decimal(24, 2)
+
+    // Investing Activities
+    capitalExpenditures      Decimal? @db.Decimal(24, 2)
+    acquisitions             Decimal? @db.Decimal(24, 2)
+    purchaseOfInvestments    Decimal? @db.Decimal(24, 2)
+    saleOfInvestments        Decimal? @db.Decimal(24, 2)
+    otherInvestingActivities Decimal? @db.Decimal(24, 2)
+    netCashFromInvesting     Decimal? @db.Decimal(24, 2)
+
+    // Financing Activities
+    debtIssuance             Decimal? @db.Decimal(24, 2)
+    debtRepayment            Decimal? @db.Decimal(24, 2)
+    commonStockIssuance      Decimal? @db.Decimal(24, 2)
+    commonStockRepurchase    Decimal? @db.Decimal(24, 2)
+    dividendsPaid            Decimal? @db.Decimal(24, 2)
+    otherFinancingActivities Decimal? @db.Decimal(24, 2)
+    netCashFromFinancing     Decimal? @db.Decimal(24, 2)
+
+    // Summary
+    netChangeInCash     Decimal? @db.Decimal(24, 2)
+    cashBeginningPeriod Decimal? @db.Decimal(24, 2)
+    cashEndPeriod       Decimal? @db.Decimal(24, 2)
+    freeCashFlow        Decimal? @db.Decimal(24, 2) // = netCashFromOperations - capitalExpenditures
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("cash_flow_statements")
+}
+
+// ============================================================
+// VALUATION RATIOS
+// ============================================================
+
+model ValuationRatio {
+    id        String   @id @default(uuid())
+    companyId String
+    date      DateTime
+
+    stockPrice      Decimal? @db.Decimal(14, 4)
+    marketCap       Decimal? @db.Decimal(24, 2)
+    enterpriseValue Decimal? @db.Decimal(24, 2) // EV = MarketCap + Debt - Cash
+
+    // Price multiples
+    peRatio  Decimal? @db.Decimal(12, 4) // Price / EPS
+    pbRatio  Decimal? @db.Decimal(12, 4) // Price / Book Value
+    psRatio  Decimal? @db.Decimal(12, 4) // Price / Sales
+    pcfRatio Decimal? @db.Decimal(12, 4) // Price / Cash Flow
+    pegRatio Decimal? @db.Decimal(12, 4) // P/E / Earnings Growth Rate
+
+    // EV multiples
+    evToEbitda  Decimal? @db.Decimal(12, 4)
+    evToEbit    Decimal? @db.Decimal(12, 4)
+    evToRevenue Decimal? @db.Decimal(12, 4)
+    evToFcf     Decimal? @db.Decimal(12, 4)
+
+    // Yield
+    dividendYield Decimal? @db.Decimal(8, 4)
+    earningsYield Decimal? @db.Decimal(8, 4) // = 1 / P/E
+
+    createdAt DateTime @default(now())
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, date])
+    @@map("valuation_ratios")
+}
+
+// ============================================================
+// PROFITABILITY RATIOS
+// ============================================================
+
+model ProfitabilityRatio {
+    id            String     @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int?
+    periodEndDate DateTime
+
+    grossMargin     Decimal? @db.Decimal(8, 4) // Gross Profit / Revenue
+    operatingMargin Decimal? @db.Decimal(8, 4) // EBIT / Revenue
+    ebitdaMargin    Decimal? @db.Decimal(8, 4) // EBITDA / Revenue
+    netProfitMargin Decimal? @db.Decimal(8, 4) // Net Income / Revenue
+    fcfMargin       Decimal? @db.Decimal(8, 4) // FCF / Revenue
+
+    roe  Decimal? @db.Decimal(8, 4) // Return on Equity
+    roa  Decimal? @db.Decimal(8, 4) // Return on Assets
+    roic Decimal? @db.Decimal(8, 4) // Return on Invested Capital
+    roce Decimal? @db.Decimal(8, 4) // Return on Capital Employed
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("profitability_ratios")
+}
+
+// ============================================================
+// LIQUIDITY & SOLVENCY RATIOS
+// ============================================================
+
+model LiquidityRatio {
+    id            String     @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int?
+    periodEndDate DateTime
+
+    // Likuiditas
+    currentRatio Decimal? @db.Decimal(10, 4) // Current Assets / Current Liabilities
+    quickRatio   Decimal? @db.Decimal(10, 4) // (Current Assets - Inventory) / Current Liabilities
+    cashRatio    Decimal? @db.Decimal(10, 4) // Cash / Current Liabilities
+
+    // Solvabilitas / Leverage
+    debtToEquity          Decimal? @db.Decimal(10, 4) // DER
+    debtToAssets          Decimal? @db.Decimal(10, 4)
+    debtToEbitda          Decimal? @db.Decimal(10, 4)
+    netDebtToEbitda       Decimal? @db.Decimal(10, 4)
+    interestCoverageRatio Decimal? @db.Decimal(10, 4) // EBIT / Interest Expense
+    equityMultiplier      Decimal? @db.Decimal(10, 4) // Total Assets / Total Equity
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("liquidity_ratios")
+}
+
+// ============================================================
+// EFFICIENCY RATIOS
+// ============================================================
+
+model EfficiencyRatio {
+    id            String     @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int?
+    periodEndDate DateTime
+
+    assetTurnover       Decimal? @db.Decimal(10, 4) // Revenue / Total Assets
+    inventoryTurnover   Decimal? @db.Decimal(10, 4) // COGS / Avg Inventory
+    receivablesTurnover Decimal? @db.Decimal(10, 4) // Revenue / Avg Receivables
+    payablesTurnover    Decimal? @db.Decimal(10, 4)
+
+    dso                 Decimal? @db.Decimal(10, 2) // Days Sales Outstanding
+    dio                 Decimal? @db.Decimal(10, 2) // Days Inventory Outstanding
+    dpo                 Decimal? @db.Decimal(10, 2) // Days Payable Outstanding
+    cashConversionCycle Decimal? @db.Decimal(10, 2) // DSO + DIO - DPO
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("efficiency_ratios")
+}
+
+// ============================================================
+// GROWTH METRICS
+// ============================================================
+
+model GrowthMetric {
+    id            String     @id @default(uuid())
+    companyId     String
+    period        PeriodType
+    fiscalYear    Int
+    fiscalQuarter Int?
+    periodEndDate DateTime
+
+    // Year-over-Year
+    revenueGrowthYoY   Decimal? @db.Decimal(8, 4)
+    netIncomeGrowthYoY Decimal? @db.Decimal(8, 4)
+    epsGrowthYoY       Decimal? @db.Decimal(8, 4)
+    ebitdaGrowthYoY    Decimal? @db.Decimal(8, 4)
+    fcfGrowthYoY       Decimal? @db.Decimal(8, 4)
+    bookValueGrowthYoY Decimal? @db.Decimal(8, 4)
+
+    // Quarter-over-Quarter
+    revenueGrowthQoQ   Decimal? @db.Decimal(8, 4)
+    netIncomeGrowthQoQ Decimal? @db.Decimal(8, 4)
+
+    // CAGR (Compound Annual Growth Rate)
+    revenueCagr3y   Decimal? @db.Decimal(8, 4)
+    revenueCagr5y   Decimal? @db.Decimal(8, 4)
+    netIncomeCagr3y Decimal? @db.Decimal(8, 4)
+    netIncomeCagr5y Decimal? @db.Decimal(8, 4)
+    epsCagr3y       Decimal? @db.Decimal(8, 4)
+    epsCagr5y       Decimal? @db.Decimal(8, 4)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, period, fiscalYear, fiscalQuarter])
+    @@map("growth_metrics")
+}
+
+// ============================================================
+// DIVIDENDS
+// ============================================================
+
+model Dividend {
+    id           String       @id @default(uuid())
+    companyId    String
+    dividendType DividendType
+    fiscalYear   Int
+
+    declaredDate   DateTime?
+    exDividendDate DateTime?
+    recordDate     DateTime?
+    paymentDate    DateTime?
+
+    dps           Decimal  @db.Decimal(14, 4) // Dividend Per Share
+    payoutRatio   Decimal? @db.Decimal(8, 4) // DPS / EPS
+    dividendYield Decimal? @db.Decimal(8, 4) // DPS / Stock Price
+    currency      String
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@map("dividends")
+}
+
+// ============================================================
+// MANAGEMENT
+// ============================================================
+
+model Management {
+    id        String         @id @default(uuid())
+    companyId String
+    name      String
+    position  String
+    role      ManagementRole
+    startDate DateTime?
+    endDate   DateTime?
+    isActive  Boolean        @default(true)
+    bio       String?        @db.Text
+    photoUrl  String?
+    education String?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company       Company        @relation(fields: [companyId], references: [id])
+    shareholdings Shareholding[]
+
+    @@map("managements")
+}
+
+// ============================================================
+// SHAREHOLDING STRUCTURE
+// ============================================================
+
+model Shareholding {
+    id              String          @id @default(uuid())
+    companyId       String
+    date            DateTime
+    shareholderName String
+    shareholderType ShareholderType
+    managementId    String? // Isi jika pemegang saham adalah manajemen
+
+    sharesHeld      BigInt
+    percentageOwned Decimal @db.Decimal(8, 4)
+    currency        String
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company    Company     @relation(fields: [companyId], references: [id])
+    management Management? @relation(fields: [managementId], references: [id])
+
+    @@unique([companyId, shareholderName, date])
+    @@map("shareholdings")
+}
+
+// ============================================================
+// STOCK PRICE — OHLCV
+// Relasi ke Listing (bukan Company langsung) karena satu company
+// bisa cross-listing di beberapa bursa dengan harga berbeda.
+// Contoh: TLKM di IDX (IDR) dan TLK di NYSE (USD sebagai ADR)
+// ============================================================
+
+model StockPrice {
+    id        String   @id @default(uuid())
     listingId String
-    indexId   String
-    joinedAt  DateTime?
-    removedAt DateTime?
-    listing   Listing     @relation(fields: [listingId], references: [id])
-    index     MarketIndex @relation(fields: [indexId], references: [id])
+    date      DateTime
 
-    @@unique([listingId, indexId])
+    open     Decimal  @db.Decimal(14, 4)
+    high     Decimal  @db.Decimal(14, 4)
+    low      Decimal  @db.Decimal(14, 4)
+    close    Decimal  @db.Decimal(14, 4)
+    adjClose Decimal? @db.Decimal(14, 4) // Adjusted for splits & dividends
+    volume   BigInt
+    value    Decimal? @db.Decimal(24, 2) // Nilai transaksi (volume x price)
+
+    createdAt DateTime @default(now())
+
+    listing Listing @relation(fields: [listingId], references: [id])
+
+    @@unique([listingId, date])
+    @@index([listingId, date])
+    @@map("stock_prices")
 }
 
-model Tag {
-    id     String     @id @default(uuid())
-    name   String     @unique
-    stocks StockTag[]
+// ============================================================
+// CORPORATE ACTIONS
+// ============================================================
+
+model CorporateAction {
+    id               String              @id @default(uuid())
+    companyId        String
+    actionType       CorporateActionType
+    announcementDate DateTime?
+    effectiveDate    DateTime?
+    description      String?             @db.Text
+
+    splitRatio    Decimal? @db.Decimal(10, 4) // Untuk stock split / reverse split
+    offeringPrice Decimal? @db.Decimal(14, 2) // Untuk rights issue
+    sharesOffered BigInt?
+
+    createdAt DateTime @default(now())
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@map("corporate_actions")
 }
 
-model StockTag {
-    id        String  @id @default(uuid())
-    tagId     String
-    listingId String
-    tag       Tag     @relation(fields: [tagId], references: [id])
-    listing   Listing @relation(fields: [listingId], references: [id])
+// ============================================================
+// FINANCIAL NOTES (Kualitatif)
+// ============================================================
 
-    @@unique([tagId, listingId])
+model FinancialNote {
+    id            String    @id @default(uuid())
+    companyId     String
+    fiscalYear    Int
+    fiscalQuarter Int?
+    noteType      NoteType
+    title         String
+    content       String    @db.Text
+    source        String?
+    publishedAt   DateTime?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@map("financial_notes")
+}
+
+// ============================================================
+// ANNUAL REPORTS
+// ============================================================
+
+model AnnualReport {
+    id          String    @id @default(uuid())
+    companyId   String
+    fiscalYear  Int
+    title       String
+    fileUrl     String?
+    publishedAt DateTime?
+    language    String    @default("en")
+
+    createdAt DateTime @default(now())
+
+    company Company @relation(fields: [companyId], references: [id])
+
+    @@unique([companyId, fiscalYear, language])
+    @@map("annual_reports")
 }
