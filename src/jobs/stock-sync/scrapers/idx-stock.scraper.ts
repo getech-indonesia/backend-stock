@@ -20,7 +20,26 @@ type EmitenApiItem = {
             Nama?: string;
             Jabatan?: string;
         }>;
+        commissioners?: Array<{
+            Nama?: string;
+            Jabatan?: string;
+        }>;
     };
+    dividends?: Array<{
+        Jenis?: string;
+        TahunBuku?: string;
+        TanggalCum?: string;
+        TanggalDPS?: string;
+        TanggalPembayaran?: string;
+        CashDividenPerSaham?: number;
+        CashDividenPerSahamMU?: string;
+    }>;
+    shareholders?: Array<{
+        Nama?: string;
+        Kategori?: string;
+        Jumlah?: number;
+        Persentase?: number;
+    }>;
     company?: {
         legalName?: string;
         displayName?: string;
@@ -152,6 +171,10 @@ export class IdxStockScraper {
                         row.management
                             ?.directors ??
                         [];
+                    const commissioners =
+                        row.management
+                            ?.commissioners ??
+                        [];
                     const ceoFromDirectors =
                         directors.find(
                             (
@@ -230,6 +253,97 @@ export class IdxStockScraper {
                         headquarters:
                             row.company
                                 ?.headquarters,
+                        dividends:
+                            row.dividends?.map(
+                                (
+                                    dividend,
+                                ) => ({
+                                    type: dividend.Jenis,
+                                    fiscalYear:
+                                        Number.parseInt(
+                                            dividend.TahunBuku ??
+                                            '',
+                                            10,
+                                        ),
+                                    declaredDate:
+                                        this.parseDate(
+                                            dividend.TanggalDPS,
+                                        ),
+                                    exDividendDate:
+                                        this.parseDate(
+                                            dividend.TanggalCum,
+                                        ),
+                                    paymentDate:
+                                        this.parseDate(
+                                            dividend.TanggalPembayaran,
+                                        ),
+                                    dps:
+                                        dividend.CashDividenPerSaham,
+                                    currency:
+                                        dividend.CashDividenPerSahamMU ??
+                                        'IDR',
+                                }),
+                            ) ?? [],
+                        managementMembers: [
+                            ...directors.map(
+                                (
+                                    member,
+                                ) => ({
+                                    name:
+                                        member.Nama ??
+                                        '',
+                                    position:
+                                        member.Jabatan ??
+                                        '',
+                                    group:
+                                        'DIRECTOR' as const,
+                                }),
+                            ),
+                            ...commissioners.map(
+                                (
+                                    member,
+                                ) => ({
+                                    name:
+                                        member.Nama ??
+                                        '',
+                                    position:
+                                        member.Jabatan ??
+                                        '',
+                                    group:
+                                        'COMMISSIONER' as const,
+                                }),
+                            ),
+                        ].filter(
+                            (
+                                member,
+                            ) =>
+                                Boolean(
+                                    member.name,
+                                ),
+                        ),
+                        shareholders:
+                            row.shareholders?.map(
+                                (
+                                    shareholder,
+                                ) => ({
+                                    name:
+                                        shareholder.Nama ??
+                                        '',
+                                    category:
+                                        shareholder.Kategori,
+                                    sharesHeld:
+                                        shareholder.Jumlah,
+                                    percentageOwned:
+                                        shareholder.Persentase,
+                                }),
+                            ).filter(
+                                (
+                                    shareholder,
+                                ) =>
+                                    Boolean(
+                                        shareholder.name,
+                                    ),
+                            ) ?? [],
                     };
                 },
             );
@@ -276,6 +390,26 @@ export class IdxStockScraper {
         }
 
         return `https://${website}`;
+    }
+
+    private parseDate(
+        value?: string,
+    ): Date | undefined {
+        if (!value) {
+            return undefined;
+        }
+
+        const parsedDate =
+            new Date(value);
+        if (
+            Number.isNaN(
+                parsedDate.getTime(),
+            )
+        ) {
+            return undefined;
+        }
+
+        return parsedDate;
     }
 
 }

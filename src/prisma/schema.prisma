@@ -653,7 +653,7 @@ model Dividend {
     recordDate     DateTime?
     paymentDate    DateTime?
 
-    dps           Decimal  @db.Decimal(14, 4) // Dividend Per Share
+    dps           Decimal  @db.Decimal(24, 4) // Dividend Per Share
     payoutRatio   Decimal? @db.Decimal(8, 4) // DPS / EPS
     dividendYield Decimal? @db.Decimal(8, 4) // DPS / Stock Price
     currency      String

@@ -5,7 +5,10 @@ import {
 import {
     AssetType,
     CompanyStatus,
+    DividendType,
     ExchangeType,
+    ManagementRole,
+    ShareholderType,
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -173,6 +176,9 @@ export class StockSyncService {
                     },
                 );
 
+            let companyId =
+                existingListing?.companyId;
+
             if (existingListing) {
                 await this.prisma.company.update(
                     {
@@ -208,58 +214,361 @@ export class StockSyncService {
                         },
                     },
                 );
-
-                continue;
             }
+            if (!companyId) {
+                const company =
+                    await this.prisma.company.create(
+                        {
+                            data: {
+                                legalName:
+                                    stock.legalName ??
+                                    stock.companyName,
+                                displayName:
+                                    stock.displayName ??
+                                    stock.companyName,
+                                description:
+                                    stock.description,
+                                website:
+                                    stock.website,
+                                logoUrl:
+                                    stock.logoUrl,
+                                ceo: stock.ceo,
+                                foundedYear:
+                                    stock.foundedYear,
+                                employeeCount:
+                                    stock.employeeCount,
+                                headquarters:
+                                    stock.headquarters,
+                                countryId:
+                                    country.id,
+                                industryId:
+                                    industry.id,
+                                status:
+                                    CompanyStatus.ACTIVE,
+                            },
+                        },
+                    );
 
-            const company =
-                await this.prisma.company.create(
+                companyId =
+                    company.id;
+
+                await this.prisma.listing.create(
                     {
                         data: {
-                            legalName:
-                                stock.legalName ??
-                                stock.companyName,
-                            displayName:
-                                stock.displayName ??
-                                stock.companyName,
-                            description:
-                                stock.description,
-                            website:
-                                stock.website,
-                            logoUrl:
-                                stock.logoUrl,
-                            ceo: stock.ceo,
-                            foundedYear:
-                                stock.foundedYear,
-                            employeeCount:
-                                stock.employeeCount,
-                            headquarters:
-                                stock.headquarters,
-                            countryId:
-                                country.id,
-                            industryId:
-                                industry.id,
-                            status:
-                                CompanyStatus.ACTIVE,
+                            symbol:
+                                stock.symbol,
+                            assetType:
+                                AssetType.STOCK,
+                            companyId:
+                                company.id,
+                            exchangeId:
+                                exchange.id,
                         },
                     },
                 );
+            }
 
-            await this.prisma.listing.create(
+            if (!companyId) {
+                continue;
+            }
+
+            await this.persistDividends(
+                companyId,
+                stock,
+            );
+            await this.persistManagement(
+                companyId,
+                stock,
+            );
+            await this.persistShareholders(
+                companyId,
+                stock,
+            );
+        }
+    }
+
+    private async persistDividends(
+        companyId: string,
+        stock: RawStockDto,
+    ): Promise<void> {
+        for (const dividend of stock.dividends ?? []) {
+            if (
+                dividend.dps ==
+                null ||
+                !dividend.fiscalYear
+            ) {
+                continue;
+            }
+            const fiscalYear =
+                dividend.fiscalYear;
+            await this.prisma.dividend.create(
                 {
                     data: {
-                        symbol:
-                            stock.symbol,
-                        assetType:
-                            AssetType.STOCK,
-                        companyId:
-                            company.id,
-                        exchangeId:
-                            exchange.id,
+                        companyId,
+                        dividendType:
+                            this.mapDividendType(
+                                dividend.type,
+                            ),
+                        fiscalYear,
+                        declaredDate:
+                            dividend.declaredDate,
+                        exDividendDate:
+                            dividend.exDividendDate,
+                        recordDate:
+                            dividend.recordDate,
+                        paymentDate:
+                            dividend.paymentDate,
+                        dps: dividend.dps,
+                        currency:
+                            dividend.currency ??
+                            'IDR',
                     },
                 },
             );
         }
+    }
+
+    private async persistManagement(
+        companyId: string,
+        stock: RawStockDto,
+    ): Promise<void> {
+        const members =
+            stock.managementMembers ??
+            [];
+        if (members.length === 0) {
+            return;
+        }
+
+        for (const member of members) {
+            const name =
+                member.name.trim();
+            const position =
+                member.position.trim();
+            if (!name || !position) {
+                continue;
+            }
+
+            const existing =
+                await this.prisma.management.findFirst(
+                    {
+                        where: {
+                            companyId,
+                            name,
+                            position,
+                            isActive: true,
+                        },
+                    },
+                );
+
+            if (existing) {
+                continue;
+            }
+
+            await this.prisma.management.create(
+                {
+                    data: {
+                        companyId,
+                        name,
+                        position,
+                        role: this.mapManagementRole(
+                            member.group,
+                            member.position,
+                        ),
+                        isActive: true,
+                    },
+                },
+            );
+        }
+    }
+
+    private async persistShareholders(
+        companyId: string,
+        stock: RawStockDto,
+    ): Promise<void> {
+        const shareholders =
+            stock.shareholders ??
+            [];
+        if (
+            shareholders.length === 0
+        ) {
+            return;
+        }
+
+        const snapshotDate =
+            new Date();
+        snapshotDate.setHours(
+            0,
+            0,
+            0,
+            0,
+        );
+
+        for (const shareholder of shareholders) {
+            if (
+                !shareholder.name ||
+                shareholder.sharesHeld ==
+                null ||
+                shareholder.percentageOwned ==
+                null
+            ) {
+                continue;
+            }
+
+            await this.prisma.shareholding.upsert(
+                {
+                    where: {
+                        companyId_shareholderName_date:
+                        {
+                            companyId,
+                            shareholderName:
+                                shareholder.name,
+                            date: snapshotDate,
+                        },
+                    },
+                    update: {
+                        shareholderType:
+                            this.mapShareholderType(
+                                shareholder.category,
+                            ),
+                        sharesHeld:
+                            Math.trunc(
+                                shareholder.sharesHeld,
+                            ),
+                        percentageOwned:
+                            shareholder.percentageOwned,
+                        currency:
+                            'IDR',
+                    },
+                    create: {
+                        companyId,
+                        date: snapshotDate,
+                        shareholderName:
+                            shareholder.name,
+                        shareholderType:
+                            this.mapShareholderType(
+                                shareholder.category,
+                            ),
+                        sharesHeld:
+                            Math.trunc(
+                                shareholder.sharesHeld,
+                            ),
+                        percentageOwned:
+                            shareholder.percentageOwned,
+                        currency:
+                            'IDR',
+                    },
+                },
+            );
+        }
+    }
+
+    private mapDividendType(
+        type?: string,
+    ): DividendType {
+        const normalized =
+            type
+                ?.trim()
+                .toUpperCase();
+        if (
+            normalized === 'STOCK'
+        ) {
+            return DividendType.STOCK;
+        }
+        if (
+            normalized ===
+            'INTERIM'
+        ) {
+            return DividendType.INTERIM;
+        }
+        if (
+            normalized ===
+            'SPECIAL'
+        ) {
+            return DividendType.SPECIAL;
+        }
+
+        return DividendType.FINAL;
+    }
+
+    private mapManagementRole(
+        group:
+            | 'DIRECTOR'
+            | 'COMMISSIONER',
+        position: string,
+    ): ManagementRole {
+        const normalized =
+            position.toUpperCase();
+        if (
+            normalized.includes(
+                'PRESIDEN DIREKTUR',
+            )
+        ) {
+            return ManagementRole.PRESIDENT_DIRECTOR;
+        }
+        if (
+            normalized.includes(
+                'PRESIDEN KOMISARIS',
+            )
+        ) {
+            return ManagementRole.PRESIDENT_COMMISSIONER;
+        }
+        if (
+            normalized.includes(
+                'INDEPENDEN',
+            )
+        ) {
+            return ManagementRole.INDEPENDENT_COMMISSIONER;
+        }
+
+        return group ===
+            'DIRECTOR'
+            ? ManagementRole.DIRECTOR
+            : ManagementRole.COMMISSIONER;
+    }
+
+    private mapShareholderType(
+        category?: string,
+    ): ShareholderType {
+        const normalized =
+            category
+                ?.trim()
+                .toUpperCase() ?? '';
+        if (
+            normalized.includes(
+                'DIREKSI',
+            ) ||
+            normalized.includes(
+                'KOMISARIS',
+            )
+        ) {
+            return ShareholderType.INSIDER;
+        }
+        if (
+            normalized.includes(
+                'LEBIH DARI 5%',
+            ) ||
+            normalized.includes(
+                'PENGENDALI',
+            )
+        ) {
+            return ShareholderType.PROMOTER;
+        }
+        if (
+            normalized.includes(
+                'MASYARAKAT',
+            )
+        ) {
+            return ShareholderType.PUBLIC;
+        }
+        if (
+            normalized.includes(
+                'TREASURY',
+            )
+        ) {
+            return ShareholderType.INSTITUTIONAL;
+        }
+
+        return ShareholderType.INSTITUTIONAL;
     }
 
 }

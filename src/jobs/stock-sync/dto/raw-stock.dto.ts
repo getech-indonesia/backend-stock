@@ -4,6 +4,30 @@ import {
     IsUrl,
 } from 'class-validator';
 
+type RawDividendDto = {
+    type?: string;
+    fiscalYear?: number;
+    declaredDate?: Date;
+    exDividendDate?: Date;
+    recordDate?: Date;
+    paymentDate?: Date;
+    dps?: number;
+    currency?: string;
+};
+
+type RawManagementMemberDto = {
+    name: string;
+    position: string;
+    group: 'DIRECTOR' | 'COMMISSIONER';
+};
+
+type RawShareholderDto = {
+    name: string;
+    category?: string;
+    sharesHeld?: number;
+    percentageOwned?: number;
+};
+
 export class RawStockDto {
     @IsString()
     symbol!: string;
@@ -58,4 +82,13 @@ export class RawStockDto {
 
     @IsOptional()
     employeeCount?: number;
+
+    @IsOptional()
+    dividends?: RawDividendDto[];
+
+    @IsOptional()
+    managementMembers?: RawManagementMemberDto[];
+
+    @IsOptional()
+    shareholders?: RawShareholderDto[];
 }
