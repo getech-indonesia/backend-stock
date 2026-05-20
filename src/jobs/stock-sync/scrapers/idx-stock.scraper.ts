@@ -81,9 +81,9 @@ export class IdxStockScraper {
             IdxStockScraper.name,
         );
 
-    private readonly EMITEN_API_URL =
-        process.env.EMITEN_API_URL ??
-        'http://127.0.0.1:5000/api/emiten';
+    private readonly pythonBackendBaseUrl =
+        process.env.PYTHON_BACKEND_BASE_URL ??
+        'http://127.0.0.1:5000/api';
 
     async scrapePage(
         page: number,
@@ -105,11 +105,17 @@ export class IdxStockScraper {
                 >
             >;
         try {
+            const endpoint =
+                new URL(
+                    'emiten',
+                    this.pythonBackendBaseUrl,
+                ).toString();
+
             response =
                 await axios.get<
                     EmitenApiResponse
                 >(
-                    this.EMITEN_API_URL,
+                    endpoint,
                     {
                         params: {
                             page,

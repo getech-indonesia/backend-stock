@@ -26,6 +26,7 @@
     "prisma:studio": "prisma studio --config src/prisma/prisma.config.ts",
     "prisma:push": "prisma db push --config src/prisma/prisma.config.ts",
     "stock:sync:id": "nest start --entryFile stock-sync-id",
+    "stock:sync:shares:id": "nest start --entryFile stock-sync-shares-id",
     "stock:test:ajaib": "ts-node test-ajaib-scrape.ts",
     "stock:sync:us": "nest start --entryFile stock-sync-us",
     "stock:sync:global": "nest start --entryFile stock-sync-global"

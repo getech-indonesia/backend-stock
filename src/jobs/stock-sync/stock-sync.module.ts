@@ -3,7 +3,9 @@ import { PrismaModule } from '../../prisma/prisma.module';
 
 import { AjaibStockScraper } from './scrapers/ajaib-stock.scraper';
 import { IdxStockScraper } from './scrapers/idx-stock.scraper';
+import { SharesDataSyncCommand } from './shares-data-sync.command';
 import { StockSyncCommand } from './stock-sync.command';
+import { SharesDataSyncService } from './sync/shares-data-sync.service';
 import { StockSyncService } from './stock-sync.service';
 
 @Module({
@@ -11,6 +13,8 @@ import { StockSyncService } from './stock-sync.service';
     providers: [
         AjaibStockScraper,
         IdxStockScraper,
+        SharesDataSyncCommand,
+        SharesDataSyncService,
         StockSyncCommand,
         StockSyncService,
     ],

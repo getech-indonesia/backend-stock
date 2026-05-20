@@ -5,7 +5,7 @@ import { StockSyncService } from './stock-sync.service';
 @Command({
     name: 'stock:sync:id',
     description:
-        'Sync Indonesia stock data from EMITEN_API_URL and persist page by page',
+        'Sync Indonesia stock data from Python backend and persist page by page',
 })
 export class StockSyncCommand extends CommandRunner {
 
