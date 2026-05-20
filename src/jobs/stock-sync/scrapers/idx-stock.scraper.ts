@@ -106,10 +106,9 @@ export class IdxStockScraper {
             >;
         try {
             const endpoint =
-                new URL(
+                this.buildPythonBackendUrl(
                     'emiten',
-                    this.pythonBackendBaseUrl,
-                ).toString();
+                );
 
             response =
                 await axios.get<
@@ -396,6 +395,15 @@ export class IdxStockScraper {
         }
 
         return `https://${website}`;
+    }
+
+    private buildPythonBackendUrl(
+        path: string,
+    ): string {
+        return new URL(
+            path,
+            `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`,
+        ).toString();
     }
 
     private parseDate(

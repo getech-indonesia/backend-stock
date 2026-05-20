@@ -197,10 +197,9 @@ export class SharesDataSyncService {
         symbol: string,
     ): Promise<SharesDataApiResponse | null> {
         const endpoint =
-            new URL(
+            this.buildPythonBackendUrl(
                 'shares-data',
-                this.pythonBackendBaseUrl,
-            ).toString();
+            );
 
         try {
             const response =
@@ -275,6 +274,15 @@ export class SharesDataSyncService {
             0,
         );
         return parsed;
+    }
+
+    private buildPythonBackendUrl(
+        path: string,
+    ): string {
+        return new URL(
+            path,
+            `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`,
+        ).toString();
     }
 
 }
