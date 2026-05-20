@@ -16,6 +16,11 @@ type SharesDataApiResponse = {
     sharesInsider?: number | null;
 };
 
+type SharesDataEnvelopeApiResponse = {
+    count?: number;
+    shares_data?: SharesDataApiResponse[];
+};
+
 @Injectable()
 export class SharesDataSyncService {
 
@@ -70,114 +75,119 @@ export class SharesDataSyncService {
                 continue;
             }
 
-            const payload =
+            const payloads =
                 await this.fetchSharesData(
                     symbol,
                 );
 
-            if (!payload) {
+            if (!payloads) {
                 skipped++;
                 continue;
             }
 
-            const snapshotDate =
-                this.parseSnapshotDate(
-                    payload.date,
-                );
-            if (!snapshotDate) {
-                skipped++;
-                this.logger.warn(
-                    `Skipping symbol ${symbol} because date is invalid: ${payload.date ?? 'N/A'}`,
-                );
-                continue;
-            }
+            let companyRecordsUpserted = 0;
 
-            if (
-                payload.sharesOutstanding ==
-                null
-            ) {
-                skipped++;
-                this.logger.warn(
-                    `Skipping symbol ${symbol} because sharesOutstanding is missing`,
-                );
-                continue;
-            }
+            for (const payload of payloads) {
+                const snapshotDate =
+                    this.parseSnapshotDate(
+                        payload.date,
+                    );
+                if (!snapshotDate) {
+                    skipped++;
+                    this.logger.warn(
+                        `Skipping symbol ${symbol} because date is invalid: ${payload.date ?? 'N/A'}`,
+                    );
+                    continue;
+                }
 
-            await this.prisma.sharesData.upsert(
-                {
-                    where: {
-                        companyId_date: {
+                if (
+                    payload.sharesOutstanding ==
+                    null
+                ) {
+                    skipped++;
+                    this.logger.warn(
+                        `Skipping symbol ${symbol} on ${payload.date} because sharesOutstanding is missing`,
+                    );
+                    continue;
+                }
+
+                await this.prisma.sharesData.upsert(
+                    {
+                        where: {
+                            companyId_date: {
+                                companyId:
+                                    company.id,
+                                date: snapshotDate,
+                            },
+                        },
+                        update: {
+                            sharesOutstanding:
+                                Math.trunc(
+                                    payload.sharesOutstanding,
+                                ),
+                            sharesFloat:
+                                payload.sharesFloat ==
+                                null
+                                    ? null
+                                    : Math.trunc(
+                                        payload.sharesFloat,
+                                    ),
+                            sharesInstitutional:
+                                payload.sharesInstitutional ==
+                                null
+                                    ? null
+                                    : Math.trunc(
+                                        payload.sharesInstitutional,
+                                    ),
+                            sharesInsider:
+                                payload.sharesInsider ==
+                                null
+                                    ? null
+                                    : Math.trunc(
+                                        payload.sharesInsider,
+                                    ),
+                        },
+                        create: {
                             companyId:
                                 company.id,
                             date: snapshotDate,
+                            sharesOutstanding:
+                                Math.trunc(
+                                    payload.sharesOutstanding,
+                                ),
+                            sharesFloat:
+                                payload.sharesFloat ==
+                                null
+                                    ? null
+                                    : Math.trunc(
+                                        payload.sharesFloat,
+                                    ),
+                            sharesInstitutional:
+                                payload.sharesInstitutional ==
+                                null
+                                    ? null
+                                    : Math.trunc(
+                                        payload.sharesInstitutional,
+                                    ),
+                            sharesInsider:
+                                payload.sharesInsider ==
+                                null
+                                    ? null
+                                    : Math.trunc(
+                                        payload.sharesInsider,
+                                    ),
+                            marketCap: 0,
+                            currency: 'IDR',
                         },
                     },
-                    update: {
-                        sharesOutstanding:
-                            Math.trunc(
-                                payload.sharesOutstanding,
-                            ),
-                        sharesFloat:
-                            payload.sharesFloat ==
-                            null
-                                ? null
-                                : Math.trunc(
-                                    payload.sharesFloat,
-                                ),
-                        sharesInstitutional:
-                            payload.sharesInstitutional ==
-                            null
-                                ? null
-                                : Math.trunc(
-                                    payload.sharesInstitutional,
-                                ),
-                        sharesInsider:
-                            payload.sharesInsider ==
-                            null
-                                ? null
-                                : Math.trunc(
-                                    payload.sharesInsider,
-                                ),
-                    },
-                    create: {
-                        companyId:
-                            company.id,
-                        date: snapshotDate,
-                        sharesOutstanding:
-                            Math.trunc(
-                                payload.sharesOutstanding,
-                            ),
-                        sharesFloat:
-                            payload.sharesFloat ==
-                            null
-                                ? null
-                                : Math.trunc(
-                                    payload.sharesFloat,
-                                ),
-                        sharesInstitutional:
-                            payload.sharesInstitutional ==
-                            null
-                                ? null
-                                : Math.trunc(
-                                    payload.sharesInstitutional,
-                                ),
-                        sharesInsider:
-                            payload.sharesInsider ==
-                            null
-                                ? null
-                                : Math.trunc(
-                                    payload.sharesInsider,
-                                ),
-                        marketCap: 0,
-                        currency: 'IDR',
-                    },
-                },
-            );
+                );
 
-            recordsUpserted++;
+                recordsUpserted++;
+                companyRecordsUpserted++;
+            }
 
             this.logger.log(
-                `Shares data synced for ${symbol} (${company.id})`,
+                `Shares data synced for ${symbol} (${company.id}) with ${companyRecordsUpserted} record(s)`,
             );
         }
 
@@ -195,7 +205,9 @@ export class SharesDataSyncService {
 
     private async fetchSharesData(
         symbol: string,
-    ): Promise<SharesDataApiResponse | null> {
+    ): Promise<
+        SharesDataApiResponse[] | null
+    > {
         const endpoint =
             this.buildPythonBackendUrl(
                 'shares-data',
@@ -204,7 +216,8 @@ export class SharesDataSyncService {
         try {
             const response =
                 await axios.get<
-                    SharesDataApiResponse
+                    | SharesDataApiResponse
+                    | SharesDataEnvelopeApiResponse
                 >(
                     endpoint,
                     {
@@ -215,7 +228,40 @@ export class SharesDataSyncService {
                     },
                 );
 
-            return response.data;
+            const payload =
+                response.data;
+
+            if (
+                Array.isArray(
+                    (
+                        payload as SharesDataEnvelopeApiResponse
+                    ).shares_data,
+                )
+            ) {
+                return (
+                    payload as SharesDataEnvelopeApiResponse
+                ).shares_data!.filter(
+                    (
+                        item,
+                    ) => !!item,
+                );
+            }
+
+            if (
+                payload &&
+                typeof payload ===
+                    'object' &&
+                'date' in payload
+            ) {
+                return [
+                    payload as SharesDataApiResponse,
+                ];
+            }
+
+            this.logger.warn(
+                `Failed to parse shares data for ${symbol}. body=${JSON.stringify(payload).slice(0, 200)}`,
+            );
+            return null;
         } catch (error) {
             const axiosError =
                 error as AxiosError;

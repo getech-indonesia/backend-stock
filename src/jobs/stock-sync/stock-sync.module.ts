@@ -6,6 +6,7 @@ import { IdxStockScraper } from './scrapers/idx-stock.scraper';
 import { SharesDataSyncCommand } from './shares-data-sync.command';
 import { StockSyncCommand } from './stock-sync.command';
 import { SharesDataSyncService } from './sync/shares-data-sync.service';
+import { StockPriceSyncService } from './sync/stock-price-sync.service';
 import { StockSyncService } from './stock-sync.service';
 
 @Module({
@@ -15,9 +16,13 @@ import { StockSyncService } from './stock-sync.service';
         IdxStockScraper,
         SharesDataSyncCommand,
         SharesDataSyncService,
+        StockPriceSyncService,
         StockSyncCommand,
         StockSyncService,
     ],
-    exports: [StockSyncService],
+    exports: [
+        StockPriceSyncService,
+        StockSyncService,
+    ],
 })
 export class StockSyncModule {}
