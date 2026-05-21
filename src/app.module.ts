@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 
 import { AuthModule } from './modules/auth/auth.module';
+import { CorporateActionsModule } from './modules/corporate-actions/corporate-actions.module';
 import { StocksModule } from './modules/stocks/stocks.module';
 
 @Module({
@@ -15,6 +16,7 @@ import { StocksModule } from './modules/stocks/stocks.module';
     PrismaModule,
 
     AuthModule,
+    CorporateActionsModule,
     StocksModule,
   ],
 })
