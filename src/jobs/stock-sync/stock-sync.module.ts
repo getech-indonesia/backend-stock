@@ -7,6 +7,7 @@ import { IdxStockScraper } from './scrapers/idx-stock.scraper';
 import { SharesDataSyncCommand } from './shares-data-sync.command';
 import { StockSyncCommand } from './stock-sync.command';
 import { CorporateActionSyncService } from './sync/corporate-action-sync.service';
+import { FinancialStatementSyncService } from './sync/financial-statement-sync.service';
 import { SharesDataSyncService } from './sync/shares-data-sync.service';
 import { StockPriceSyncService } from './sync/stock-price-sync.service';
 import { StockSyncService } from './stock-sync.service';
@@ -17,6 +18,7 @@ import { StockSyncService } from './stock-sync.service';
     AjaibStockScraper,
     CorporateActionSyncCommand,
     CorporateActionSyncService,
+    FinancialStatementSyncService,
     IdxStockScraper,
     SharesDataSyncCommand,
     SharesDataSyncService,
@@ -26,6 +28,7 @@ import { StockSyncService } from './stock-sync.service';
   ],
   exports: [
     CorporateActionSyncService,
+    FinancialStatementSyncService,
     StockPriceSyncService,
     StockSyncService,
   ],
