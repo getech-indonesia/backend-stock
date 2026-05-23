@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AuditStatus, PeriodType } from '@prisma/client';
+import { AuditStatus, PeriodType, Prisma } from '@prisma/client';
 
 import axios, { AxiosError } from 'axios';
 
@@ -141,7 +141,7 @@ export class FinancialStatementSyncService {
   private readonly pythonBackendBaseUrl =
     process.env.PYTHON_BACKEND_BASE_URL ?? 'http://127.0.0.1:5000/api';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async syncAllFromPython(year: number): Promise<{
     year: number;
@@ -249,8 +249,8 @@ export class FinancialStatementSyncService {
       const mappedPeriod = this.mapPeriod(item.period, item.fiscalQuarter);
       const fiscalYear = this.parseFiscalYear(item.fiscalYear, requestedYear);
       const periodEndDate = this.parseDate(item.periodEndDate);
-      const revenue = this.toNumberOrNull(item.revenue);
-      const netIncome = this.toNumberOrNull(item.netIncome);
+      const revenue = this.toDecimalOrNull(item.revenue);
+      const netIncome = this.toDecimalOrNull(item.netIncome);
 
       if (!mappedPeriod || !fiscalYear || !periodEndDate || revenue == null || netIncome == null) {
         this.logger.warn(
@@ -264,28 +264,28 @@ export class FinancialStatementSyncService {
         currency: this.toCurrency(item.currency),
         auditStatus: this.mapAuditStatus(item.auditStatus),
         revenue,
-        revenueGrowthYoY: this.toNumberOrNull(item.revenueGrowthYoY),
-        cogs: this.toNumberOrNull(item.cogs),
-        grossProfit: this.toNumberOrNull(item.grossProfit),
-        operatingExpenses: this.toNumberOrNull(item.operatingExpenses),
-        sellingExpenses: this.toNumberOrNull(item.sellingExpenses),
-        generalAdminExpenses: this.toNumberOrNull(item.generalAdminExpenses),
-        rdExpenses: this.toNumberOrNull(item.rdExpenses),
-        depreciationAmort: this.toNumberOrNull(item.depreciationAmort),
-        ebit: this.toNumberOrNull(item.ebit),
-        ebitda: this.toNumberOrNull(item.ebitda),
-        operatingIncome: this.toNumberOrNull(item.operatingIncome),
-        interestExpense: this.toNumberOrNull(item.interestExpense),
-        interestIncome: this.toNumberOrNull(item.interestIncome),
-        otherNonOperatingIncome: this.toNumberOrNull(item.otherNonOperatingIncome),
-        pretaxIncome: this.toNumberOrNull(item.pretaxIncome),
-        incomeTaxExpense: this.toNumberOrNull(item.incomeTaxExpense),
-        effectiveTaxRate: this.toNumberOrNull(item.effectiveTaxRate),
+        revenueGrowthYoY: this.toDecimalOrNull(item.revenueGrowthYoY, 8, 4),
+        cogs: this.toDecimalOrNull(item.cogs),
+        grossProfit: this.toDecimalOrNull(item.grossProfit),
+        operatingExpenses: this.toDecimalOrNull(item.operatingExpenses),
+        sellingExpenses: this.toDecimalOrNull(item.sellingExpenses),
+        generalAdminExpenses: this.toDecimalOrNull(item.generalAdminExpenses),
+        rdExpenses: this.toDecimalOrNull(item.rdExpenses),
+        depreciationAmort: this.toDecimalOrNull(item.depreciationAmort),
+        ebit: this.toDecimalOrNull(item.ebit),
+        ebitda: this.toDecimalOrNull(item.ebitda),
+        operatingIncome: this.toDecimalOrNull(item.operatingIncome),
+        interestExpense: this.toDecimalOrNull(item.interestExpense),
+        interestIncome: this.toDecimalOrNull(item.interestIncome),
+        otherNonOperatingIncome: this.toDecimalOrNull(item.otherNonOperatingIncome),
+        pretaxIncome: this.toDecimalOrNull(item.pretaxIncome),
+        incomeTaxExpense: this.toDecimalOrNull(item.incomeTaxExpense),
+        effectiveTaxRate: this.toDecimalOrNull(item.effectiveTaxRate, 8, 4),
         netIncome,
-        netIncomeAttributable: this.toNumberOrNull(item.netIncomeAttributable),
-        minorityInterest: this.toNumberOrNull(item.minorityInterest),
-        eps: this.toNumberOrNull(item.eps),
-        epsDiluted: this.toNumberOrNull(item.epsDiluted),
+        netIncomeAttributable: this.toDecimalOrNull(item.netIncomeAttributable),
+        minorityInterest: this.toDecimalOrNull(item.minorityInterest),
+        eps: this.toDecimalOrNull(item.eps, 14, 4),
+        epsDiluted: this.toDecimalOrNull(item.epsDiluted, 14, 4),
         sharesWeightedAvg: this.toBigIntOrNull(item.sharesWeightedAvg),
       };
 
@@ -359,8 +359,8 @@ export class FinancialStatementSyncService {
       const mappedPeriod = this.mapPeriod(item.period, item.fiscalQuarter);
       const fiscalYear = this.parseFiscalYear(item.fiscalYear, requestedYear);
       const periodEndDate = this.parseDate(item.periodEndDate);
-      const totalAssets = this.toNumberOrNull(item.totalAssets);
-      const totalEquity = this.toNumberOrNull(item.totalEquity);
+      const totalAssets = this.toDecimalOrNull(item.totalAssets);
+      const totalEquity = this.toDecimalOrNull(item.totalEquity);
 
       if (!mappedPeriod || !fiscalYear || !periodEndDate || totalAssets == null || totalEquity == null) {
         this.logger.warn(
@@ -373,39 +373,39 @@ export class FinancialStatementSyncService {
         periodEndDate,
         currency: this.toCurrency(item.currency),
         auditStatus: this.mapAuditStatus(item.auditStatus),
-        cash: this.toNumberOrNull(item.cash),
-        shortTermInvestments: this.toNumberOrNull(item.shortTermInvestments),
-        accountsReceivable: this.toNumberOrNull(item.accountsReceivable),
-        inventory: this.toNumberOrNull(item.inventory),
-        otherCurrentAssets: this.toNumberOrNull(item.otherCurrentAssets),
-        totalCurrentAssets: this.toNumberOrNull(item.totalCurrentAssets),
-        propertyPlantEquipment: this.toNumberOrNull(item.propertyPlantEquipment),
-        intangibleAssets: this.toNumberOrNull(item.intangibleAssets),
-        goodwill: this.toNumberOrNull(item.goodwill),
-        longTermInvestments: this.toNumberOrNull(item.longTermInvestments),
-        otherNonCurrentAssets: this.toNumberOrNull(item.otherNonCurrentAssets),
-        totalNonCurrentAssets: this.toNumberOrNull(item.totalNonCurrentAssets),
+        cash: this.toDecimalOrNull(item.cash),
+        shortTermInvestments: this.toDecimalOrNull(item.shortTermInvestments),
+        accountsReceivable: this.toDecimalOrNull(item.accountsReceivable),
+        inventory: this.toDecimalOrNull(item.inventory),
+        otherCurrentAssets: this.toDecimalOrNull(item.otherCurrentAssets),
+        totalCurrentAssets: this.toDecimalOrNull(item.totalCurrentAssets),
+        propertyPlantEquipment: this.toDecimalOrNull(item.propertyPlantEquipment),
+        intangibleAssets: this.toDecimalOrNull(item.intangibleAssets),
+        goodwill: this.toDecimalOrNull(item.goodwill),
+        longTermInvestments: this.toDecimalOrNull(item.longTermInvestments),
+        otherNonCurrentAssets: this.toDecimalOrNull(item.otherNonCurrentAssets),
+        totalNonCurrentAssets: this.toDecimalOrNull(item.totalNonCurrentAssets),
         totalAssets,
-        shortTermDebt: this.toNumberOrNull(item.shortTermDebt),
-        accountsPayable: this.toNumberOrNull(item.accountsPayable),
-        deferredRevenue: this.toNumberOrNull(item.deferredRevenue),
-        otherCurrentLiabilities: this.toNumberOrNull(item.otherCurrentLiabilities),
-        totalCurrentLiabilities: this.toNumberOrNull(item.totalCurrentLiabilities),
-        longTermDebt: this.toNumberOrNull(item.longTermDebt),
-        deferredTaxLiabilities: this.toNumberOrNull(item.deferredTaxLiabilities),
-        otherNonCurrentLiabilities: this.toNumberOrNull(item.otherNonCurrentLiabilities),
-        totalNonCurrentLiabilities: this.toNumberOrNull(item.totalNonCurrentLiabilities),
-        totalLiabilities: this.toNumberOrNull(item.totalLiabilities),
-        commonStock: this.toNumberOrNull(item.commonStock),
-        additionalPaidInCapital: this.toNumberOrNull(item.additionalPaidInCapital),
-        retainedEarnings: this.toNumberOrNull(item.retainedEarnings),
-        treasuryStock: this.toNumberOrNull(item.treasuryStock),
-        otherEquity: this.toNumberOrNull(item.otherEquity),
-        minorityInterestEquity: this.toNumberOrNull(item.minorityInterestEquity),
+        shortTermDebt: this.toDecimalOrNull(item.shortTermDebt),
+        accountsPayable: this.toDecimalOrNull(item.accountsPayable),
+        deferredRevenue: this.toDecimalOrNull(item.deferredRevenue),
+        otherCurrentLiabilities: this.toDecimalOrNull(item.otherCurrentLiabilities),
+        totalCurrentLiabilities: this.toDecimalOrNull(item.totalCurrentLiabilities),
+        longTermDebt: this.toDecimalOrNull(item.longTermDebt),
+        deferredTaxLiabilities: this.toDecimalOrNull(item.deferredTaxLiabilities),
+        otherNonCurrentLiabilities: this.toDecimalOrNull(item.otherNonCurrentLiabilities),
+        totalNonCurrentLiabilities: this.toDecimalOrNull(item.totalNonCurrentLiabilities),
+        totalLiabilities: this.toDecimalOrNull(item.totalLiabilities),
+        commonStock: this.toDecimalOrNull(item.commonStock),
+        additionalPaidInCapital: this.toDecimalOrNull(item.additionalPaidInCapital),
+        retainedEarnings: this.toDecimalOrNull(item.retainedEarnings),
+        treasuryStock: this.toDecimalOrNull(item.treasuryStock),
+        otherEquity: this.toDecimalOrNull(item.otherEquity),
+        minorityInterestEquity: this.toDecimalOrNull(item.minorityInterestEquity),
         totalEquity,
-        bookValuePerShare: this.toNumberOrNull(item.bookValuePerShare),
-        netDebt: this.toNumberOrNull(item.netDebt),
-        workingCapital: this.toNumberOrNull(item.workingCapital),
+        bookValuePerShare: this.toDecimalOrNull(item.bookValuePerShare, 14, 4),
+        netDebt: this.toDecimalOrNull(item.netDebt),
+        workingCapital: this.toDecimalOrNull(item.workingCapital),
       };
 
       if (mappedPeriod.fiscalQuarter == null) {
@@ -478,7 +478,7 @@ export class FinancialStatementSyncService {
       const mappedPeriod = this.mapPeriod(item.period, item.fiscalQuarter);
       const fiscalYear = this.parseFiscalYear(item.fiscalYear, requestedYear);
       const periodEndDate = this.parseDate(item.periodEndDate);
-      const netCashFromOperations = this.toNumberOrNull(item.netCashFromOperations);
+      const netCashFromOperations = this.toDecimalOrNull(item.netCashFromOperations);
 
       if (!mappedPeriod || !fiscalYear || !periodEndDate || netCashFromOperations == null) {
         this.logger.warn(
@@ -491,32 +491,32 @@ export class FinancialStatementSyncService {
         periodEndDate,
         currency: this.toCurrency(item.currency),
         auditStatus: this.mapAuditStatus(item.auditStatus),
-        netIncomeStart: this.toNumberOrNull(item.netIncomeStart),
-        depreciationAmort: this.toNumberOrNull(item.depreciationAmort),
-        stockBasedCompensation: this.toNumberOrNull(item.stockBasedCompensation),
-        changeInWorkingCapital: this.toNumberOrNull(item.changeInWorkingCapital),
-        changeInReceivables: this.toNumberOrNull(item.changeInReceivables),
-        changeInInventory: this.toNumberOrNull(item.changeInInventory),
-        changeInPayables: this.toNumberOrNull(item.changeInPayables),
-        otherOperatingActivities: this.toNumberOrNull(item.otherOperatingActivities),
+        netIncomeStart: this.toDecimalOrNull(item.netIncomeStart),
+        depreciationAmort: this.toDecimalOrNull(item.depreciationAmort),
+        stockBasedCompensation: this.toDecimalOrNull(item.stockBasedCompensation),
+        changeInWorkingCapital: this.toDecimalOrNull(item.changeInWorkingCapital),
+        changeInReceivables: this.toDecimalOrNull(item.changeInReceivables),
+        changeInInventory: this.toDecimalOrNull(item.changeInInventory),
+        changeInPayables: this.toDecimalOrNull(item.changeInPayables),
+        otherOperatingActivities: this.toDecimalOrNull(item.otherOperatingActivities),
         netCashFromOperations,
-        capitalExpenditures: this.toNumberOrNull(item.capitalExpenditures),
-        acquisitions: this.toNumberOrNull(item.acquisitions),
-        purchaseOfInvestments: this.toNumberOrNull(item.purchaseOfInvestments),
-        saleOfInvestments: this.toNumberOrNull(item.saleOfInvestments),
-        otherInvestingActivities: this.toNumberOrNull(item.otherInvestingActivities),
-        netCashFromInvesting: this.toNumberOrNull(item.netCashFromInvesting),
-        debtIssuance: this.toNumberOrNull(item.debtIssuance),
-        debtRepayment: this.toNumberOrNull(item.debtRepayment),
-        commonStockIssuance: this.toNumberOrNull(item.commonStockIssuance),
-        commonStockRepurchase: this.toNumberOrNull(item.commonStockRepurchase),
-        dividendsPaid: this.toNumberOrNull(item.dividendsPaid),
-        otherFinancingActivities: this.toNumberOrNull(item.otherFinancingActivities),
-        netCashFromFinancing: this.toNumberOrNull(item.netCashFromFinancing),
-        netChangeInCash: this.toNumberOrNull(item.netChangeInCash),
-        cashBeginningPeriod: this.toNumberOrNull(item.cashBeginningPeriod),
-        cashEndPeriod: this.toNumberOrNull(item.cashEndPeriod),
-        freeCashFlow: this.toNumberOrNull(item.freeCashFlow),
+        capitalExpenditures: this.toDecimalOrNull(item.capitalExpenditures),
+        acquisitions: this.toDecimalOrNull(item.acquisitions),
+        purchaseOfInvestments: this.toDecimalOrNull(item.purchaseOfInvestments),
+        saleOfInvestments: this.toDecimalOrNull(item.saleOfInvestments),
+        otherInvestingActivities: this.toDecimalOrNull(item.otherInvestingActivities),
+        netCashFromInvesting: this.toDecimalOrNull(item.netCashFromInvesting),
+        debtIssuance: this.toDecimalOrNull(item.debtIssuance),
+        debtRepayment: this.toDecimalOrNull(item.debtRepayment),
+        commonStockIssuance: this.toDecimalOrNull(item.commonStockIssuance),
+        commonStockRepurchase: this.toDecimalOrNull(item.commonStockRepurchase),
+        dividendsPaid: this.toDecimalOrNull(item.dividendsPaid),
+        otherFinancingActivities: this.toDecimalOrNull(item.otherFinancingActivities),
+        netCashFromFinancing: this.toDecimalOrNull(item.netCashFromFinancing),
+        netChangeInCash: this.toDecimalOrNull(item.netChangeInCash),
+        cashBeginningPeriod: this.toDecimalOrNull(item.cashBeginningPeriod),
+        cashEndPeriod: this.toDecimalOrNull(item.cashEndPeriod),
+        freeCashFlow: this.toDecimalOrNull(item.freeCashFlow),
       };
 
       if (mappedPeriod.fiscalQuarter == null) {
@@ -698,26 +698,40 @@ export class FinancialStatementSyncService {
     return currency ? currency : 'IDR';
   }
 
-  private toNumberOrNull(value?: number | null): number | null {
+  private toDecimalOrNull(
+    value?: number | string | null,
+    precision = 24,
+    scale = 2,
+  ): string | null {
     if (value == null) {
       return null;
     }
 
-    if (!Number.isFinite(value)) {
+    const decimal = new Prisma.Decimal(value);
+
+    if (!decimal.isFinite()) {
       return null;
     }
 
-    return value;
+    const rounded = decimal.toDecimalPlaces(scale, Prisma.Decimal.ROUND_HALF_UP);
+    const fixed = rounded.toFixed(scale);
+    const integerDigits = fixed.replace(/^-/, '').split('.')[0].replace(/^0+/, '').length;
+
+    if (integerDigits > precision - scale) {
+      return null;
+    }
+
+    return fixed;
   }
 
   private toBigIntOrNull(value?: number | null): bigint | null {
-    const parsed = this.toNumberOrNull(value);
+    const parsed = this.toDecimalOrNull(value);
 
     if (parsed == null) {
       return null;
     }
 
-    return BigInt(Math.trunc(parsed));
+    return BigInt(parsed.split('.')[0]);
   }
 
   private buildPythonBackendUrl(path: string): string {
