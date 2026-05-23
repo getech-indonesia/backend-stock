@@ -17,13 +17,18 @@ export class StocksController {
   constructor(
     private readonly stocksService: StocksService,
     private readonly financialStatementSyncService: FinancialStatementSyncService,
-  ) {}
+  ) { }
 
   @Get('stocks')
   async getStocks(
     @Query() query: FindStocksQueryDto,
   ) {
     return this.stocksService.findAll(query);
+  }
+
+  @Get('sectors')
+  async getSectors() {
+    return this.stocksService.findAllSectors();
   }
 
   @Get('emiten')

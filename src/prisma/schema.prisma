@@ -246,10 +246,33 @@ model Listing {
     exchange Exchange @relation(fields: [exchangeId], references: [id])
 
     // StockPrice relasi ke Listing (bukan Company) supaya harga per-bursa terpisah
-    stockPrices StockPrice[]
+    stockPrices      StockPrice[]
+    ajaibStockMarket AjaibStockMarket?
 
     @@unique([symbol, exchangeId])
     @@map("listings")
+}
+
+model AjaibStockMarket {
+    id        String @id @default(uuid())
+    listingId String @unique
+
+    marketCap              Decimal  @db.Decimal(24, 2)
+    price                  Decimal  @db.Decimal(14, 4)
+    price1MonthPctChange   Decimal? @db.Decimal(10, 4)
+    price1MonthPrice       Decimal? @db.Decimal(14, 4)
+    price1MonthPriceChange Decimal? @db.Decimal(14, 4)
+    price1WeekPctChange    Decimal? @db.Decimal(10, 4)
+    price1WeekPrice        Decimal? @db.Decimal(14, 4)
+    price1WeekPriceChange  Decimal? @db.Decimal(14, 4)
+    volume                 BigInt
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    listing Listing @relation(fields: [listingId], references: [id])
+
+    @@map("ajaib_stock_markets")
 }
 
 // ============================================================

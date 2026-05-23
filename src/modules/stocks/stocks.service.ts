@@ -7,7 +7,26 @@ import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
 export class StocksService {
   constructor(
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
+
+  async findAllSectors() {
+    return this.prisma.sector.findMany({
+      orderBy: {
+        name: 'asc',
+      },
+      include: {
+        industries: {
+          orderBy: {
+            name: 'asc',
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
 
   async findAll(
     query: FindStocksQueryDto,
@@ -19,33 +38,33 @@ export class StocksService {
 
     const where = keyword
       ? {
-          OR: [
-            {
-              symbol: {
-                contains: keyword,
-                mode: 'insensitive' as const,
-              },
+        OR: [
+          {
+            symbol: {
+              contains: keyword,
+              mode: 'insensitive' as const,
             },
-            {
-              company: {
-                OR: [
-                  {
-                    displayName: {
-                      contains: keyword,
-                      mode: 'insensitive' as const,
-                    },
+          },
+          {
+            company: {
+              OR: [
+                {
+                  displayName: {
+                    contains: keyword,
+                    mode: 'insensitive' as const,
                   },
-                  {
-                    legalName: {
-                      contains: keyword,
-                      mode: 'insensitive' as const,
-                    },
+                },
+                {
+                  legalName: {
+                    contains: keyword,
+                    mode: 'insensitive' as const,
                   },
-                ],
-              },
+                },
+              ],
             },
-          ],
-        }
+          },
+        ],
+      }
       : undefined;
 
     const [items, total] =

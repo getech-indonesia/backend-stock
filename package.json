@@ -30,6 +30,7 @@
     "stock:sync:corporate-action:id": "ts-node src/stock-sync-corporate-action-id.ts",
     "stock:sync:shares:id": "nest start --entryFile stock-sync-shares-id",
     "stock:sync:financial-statement:id": "ts-node src/stock-sync-financial-statement-id.ts",
+    "stock:sync:ajaib-stock-market": "ts-node src/stock-sync-ajaib-stock-market-id.ts",
     "stock:test:ajaib": "ts-node test-ajaib-scrape.ts",
     "stock:sync:us": "nest start --entryFile stock-sync-us",
     "stock:sync:global": "nest start --entryFile stock-sync-global"
