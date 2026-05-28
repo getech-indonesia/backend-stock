@@ -3,8 +3,8 @@ import 'dotenv/config';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
-import { StockSyncModule } from './jobs/stock-sync/stock-sync.module';
-import { FinancialStatementSyncService } from './jobs/stock-sync/sync/financial-statement-sync.service';
+import { StockSyncModule } from '../stock-sync.module';
+import { FinancialStatementSyncService } from '../sync/financial-statement-sync.service';
 
 function parseYearFromArgs(args: string[]): number {
   const currentYear = new Date().getUTCFullYear();
@@ -43,7 +43,9 @@ async function bootstrap() {
   });
 
   try {
-    const financialStatementSyncService = app.get(FinancialStatementSyncService);
+    const financialStatementSyncService = app.get(
+      FinancialStatementSyncService,
+    );
 
     const result = await financialStatementSyncService.syncAllFromPython(year);
 

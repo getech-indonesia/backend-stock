@@ -3,8 +3,8 @@ import 'dotenv/config';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
-import { StockSyncModule } from './jobs/stock-sync/stock-sync.module';
-import { CorporateActionSyncService } from './jobs/stock-sync/sync/corporate-action-sync.service';
+import { StockSyncModule } from '../stock-sync.module';
+import { CorporateActionSyncService } from '../sync/corporate-action-sync.service';
 
 async function bootstrap() {
   const logger = new Logger('CorporateActionSyncBootstrap');
