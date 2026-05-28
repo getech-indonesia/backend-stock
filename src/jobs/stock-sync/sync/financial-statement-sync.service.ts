@@ -596,10 +596,7 @@ export class FinancialStatementSyncService {
     } catch (error) {
       const axiosError = error as AxiosError;
       const status = axiosError.response?.status;
-      const body =
-        typeof axiosError.response?.data === 'string'
-          ? axiosError.response?.data.slice(0, 200)
-          : JSON.stringify(axiosError.response?.data).slice(0, 200);
+      const body = this.toLogSnippet(axiosError.response?.data);
 
       this.logger.warn(
         `Failed to fetch financial statement for ${symbol} year=${year}. status=${status ?? 'N/A'} body=${body ?? 'N/A'}`,
@@ -736,5 +733,20 @@ export class FinancialStatementSyncService {
 
   private buildPythonBackendUrl(path: string): string {
     return new URL(path, `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`).toString();
+  }
+
+  private toLogSnippet(data: unknown, maxLength = 200): string | null {
+    if (data == null) {
+      return null;
+    }
+
+    if (typeof data === 'string') {
+      return data.slice(0, maxLength);
+    }
+
+    const serialized = JSON.stringify(data);
+    return typeof serialized === 'string'
+      ? serialized.slice(0, maxLength)
+      : String(data).slice(0, maxLength);
   }
 }
