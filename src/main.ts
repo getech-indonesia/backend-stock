@@ -10,6 +10,11 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
+  app.enableCors({
+    origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000',
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -19,7 +24,7 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
-  await app.listen(3000);
+  await app.listen(8080);
 }
 
 bootstrap();
