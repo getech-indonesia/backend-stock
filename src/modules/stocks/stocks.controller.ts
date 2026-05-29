@@ -63,6 +63,31 @@ export class StocksController {
     return this.getStockBySymbol(symbol);
   }
 
+  @Get('stocks/:symbol/financial-statements')
+  async getStockFinancialStatements(
+    @Param('symbol') symbol: string,
+  ) {
+    const financialStatements =
+      await this.stocksService.findFinancialStatementsBySymbol(
+        symbol,
+      );
+
+    if (!financialStatements) {
+      throw new NotFoundException(
+        `Stock with symbol ${symbol} not found`,
+      );
+    }
+
+    return financialStatements;
+  }
+
+  @Get('emiten/:symbol/financial-statements')
+  async getEmitenFinancialStatements(
+    @Param('symbol') symbol: string,
+  ) {
+    return this.getStockFinancialStatements(symbol);
+  }
+
   @Post('stocks/financial-statements/sync')
   async syncFinancialStatements(
     @Query() query: SyncFinancialStatementsQueryDto,

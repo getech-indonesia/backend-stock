@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { PeriodType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
@@ -187,6 +187,152 @@ export class StocksService {
     return this.mapListingWithMetrics(listing);
   }
 
+  async findFinancialStatementsBySymbol(symbol: string) {
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        symbol: {
+          equals: symbol,
+          mode: 'insensitive',
+        },
+      },
+      include: {
+        company: {
+          include: {
+            industry: {
+              include: {
+                sector: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    const statements = await this.prisma.incomeStatement.findMany({
+      where: {
+        companyId: listing.companyId,
+        period: {
+          in: [
+            PeriodType.Q1,
+            PeriodType.Q2,
+            PeriodType.Q3,
+            PeriodType.Q4,
+          ],
+        },
+      },
+      orderBy: [
+        {
+          fiscalYear: 'desc',
+        },
+        {
+          fiscalQuarter: 'desc',
+        },
+      ],
+      take: 8,
+    });
+
+    const periods = statements
+      .slice()
+      .reverse()
+      .map((statement) => ({
+        key: `${statement.fiscalYear}-Q${statement.fiscalQuarter}`,
+        label: this.formatPeriodLabel(
+          statement.period,
+          statement.fiscalYear,
+          statement.fiscalQuarter,
+        ),
+        period: statement.period,
+        fiscalYear: statement.fiscalYear,
+        fiscalQuarter: statement.fiscalQuarter,
+        periodEndDate: statement.periodEndDate,
+      }));
+
+    const buildRowValues = (
+      picker: (statement: (typeof statements)[number]) => Prisma.Decimal | null,
+    ) =>
+      statements
+        .slice()
+        .reverse()
+        .map((statement) => {
+          const raw = picker(statement);
+          return {
+            raw: raw?.toString() ?? null,
+            billion: this.toBillionString(raw),
+          };
+        });
+
+    const tableRows = [
+      {
+        key: 'revenue',
+        label: 'Total Pendapatan',
+        values: buildRowValues((statement) => statement.revenue),
+      },
+      {
+        key: 'cogs',
+        label: 'Beban Pokok Penjualan',
+        values: buildRowValues((statement) => statement.cogs),
+      },
+      {
+        key: 'grossProfit',
+        label: 'Laba Kotor',
+        values: buildRowValues((statement) => statement.grossProfit),
+      },
+      {
+        key: 'operatingExpenses',
+        label: 'Total Beban Usaha',
+        values: buildRowValues((statement) => statement.operatingExpenses),
+      },
+      {
+        key: 'ebit',
+        label: 'Laba Usaha (EBIT)',
+        values: buildRowValues((statement) => statement.ebit),
+      },
+      {
+        key: 'incomeTaxExpense',
+        label: 'Beban Pajak Penghasilan',
+        values: buildRowValues((statement) => statement.incomeTaxExpense),
+      },
+      {
+        key: 'netIncome',
+        label: 'Laba Bersih Tahun Berjalan',
+        values: buildRowValues((statement) => statement.netIncome),
+      },
+    ];
+
+    return {
+      listing: {
+        id: listing.id,
+        symbol: listing.symbol,
+      },
+      company: {
+        id: listing.company.id,
+        legalName: listing.company.legalName,
+        displayName: listing.company.displayName,
+      },
+      sector: {
+        name: listing.company.industry.sector.name,
+      },
+      industry: {
+        name: listing.company.industry.name,
+      },
+      report: {
+        unit: 'BILLION_IDR',
+        periods,
+        chart: {
+          revenue: buildRowValues((statement) => statement.revenue),
+          netIncome: buildRowValues((statement) => statement.netIncome),
+        },
+        table: {
+          rows: tableRows,
+        },
+      },
+    };
+  }
+
   private mapListingWithMetrics(item: any) {
     const latestStockPrice = item.stockPrices?.[0];
     const previousStockPrice = item.stockPrices?.[1];
@@ -284,5 +430,30 @@ export class StocksService {
       changePct: changePct?.toString() ?? null,
       direction,
     };
+  }
+
+  private formatPeriodLabel(
+    period: PeriodType,
+    fiscalYear: number,
+    fiscalQuarter: number | null,
+  ): string {
+    if (
+      period === PeriodType.Q1 ||
+      period === PeriodType.Q2 ||
+      period === PeriodType.Q3 ||
+      period === PeriodType.Q4
+    ) {
+      return `Q${fiscalQuarter} ${fiscalYear}`;
+    }
+
+    return `FY ${fiscalYear}`;
+  }
+
+  private toBillionString(value: Prisma.Decimal | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    return value.div(1000000000).toDecimalPlaces(3).toString();
   }
 }

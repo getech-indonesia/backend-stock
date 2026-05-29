@@ -8,6 +8,7 @@ import { FinancialStatementSyncService } from '../sync/financial-statement-sync.
 
 function parseYearFromArgs(args: string[]): number {
   const currentYear = new Date().getUTCFullYear();
+  const npmConfigYear = process.env.npm_config_year;
 
   const yearFlag = args.find((arg) => arg.startsWith('--year='));
   const yearFlagValue = yearFlag?.split('=')[1];
@@ -17,7 +18,11 @@ function parseYearFromArgs(args: string[]): number {
       ? args[yearFlagIndex + 1]
       : undefined;
   const yearPositional = args.find((arg) => /^\d{4}$/.test(arg));
-  const rawYear = yearFlagValue ?? yearByNextArg ?? yearPositional;
+  const rawYear =
+    yearFlagValue ??
+    yearByNextArg ??
+    yearPositional ??
+    npmConfigYear;
 
   if (!rawYear) {
     return currentYear;
