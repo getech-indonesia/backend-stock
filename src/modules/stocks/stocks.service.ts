@@ -132,106 +132,7 @@ export class StocksService {
 
     return {
       items: items.map((item) => {
-        const latestStockPrice = item.stockPrices[0];
-        const previousStockPrice = item.stockPrices[1];
-
-        let priceComparison: {
-          latestDate: Date;
-          latestClose: string;
-          previousDate: Date;
-          previousClose: string;
-          change: string;
-          changePct: string | null;
-          direction: 'UP' | 'DOWN' | 'FLAT';
-        } | null = null;
-
-        if (latestStockPrice && previousStockPrice) {
-          const latestClose = latestStockPrice.close;
-          const previousClose = previousStockPrice.close;
-          const change = latestClose.sub(previousClose);
-          const changePct =
-            previousClose.isZero()
-              ? null
-              : change.div(previousClose).mul(100);
-          const direction =
-            change.gt(0)
-              ? 'UP'
-              : change.lt(0)
-                ? 'DOWN'
-                : 'FLAT';
-
-          priceComparison = {
-            latestDate: latestStockPrice.date,
-            latestClose: latestClose.toString(),
-            previousDate: previousStockPrice.date,
-            previousClose: previousClose.toString(),
-            change: change.toString(),
-            changePct: changePct?.toString() ?? null,
-            direction,
-          };
-        }
-
-        return {
-          listing: {
-            id: item.id,
-            symbol: item.symbol,
-            assetType: item.assetType,
-            isin: item.isin,
-            cusip: item.cusip,
-          },
-          exchange: {
-            code: item.exchange.code,
-            name: item.exchange.name,
-            timezone: item.exchange.timezone,
-            exchangeType: item.exchange.exchangeType,
-          },
-          company: {
-            id: item.company.id,
-            legalName: item.company.legalName,
-            displayName: item.company.displayName,
-            description: item.company.description,
-            website: item.company.website,
-            logoUrl: item.company.logoUrl,
-            ceo: item.company.ceo,
-            foundedYear: item.company.foundedYear,
-            employeeCount: item.company.employeeCount,
-            headquarters: item.company.headquarters,
-            status: item.company.status,
-          },
-          country: item.company.country,
-          sector: {
-            name: item.company.industry.sector.name,
-          },
-          industry: {
-            name: item.company.industry.name,
-          },
-          latestStockPrice:
-            latestStockPrice
-              ? {
-                date: latestStockPrice.date,
-                open:
-                  latestStockPrice.open.toString(),
-                high:
-                  latestStockPrice.high.toString(),
-                low:
-                  latestStockPrice.low.toString(),
-                close:
-                  latestStockPrice.close.toString(),
-                adjClose:
-                  latestStockPrice.adjClose?.toString() ??
-                  null,
-                volume:
-                  latestStockPrice.volume.toString(),
-                value:
-                  latestStockPrice.value?.toString() ??
-                  null,
-              }
-              : null,
-          priceComparison,
-          marketCap:
-            item.ajaibStockMarket?.marketCap.toString() ??
-            null,
-        };
+        return this.mapListingWithMetrics(item);
       }),
       pagination: {
         page,
@@ -246,7 +147,7 @@ export class StocksService {
   }
 
   async findOneBySymbol(symbol: string) {
-    return this.prisma.listing.findFirst({
+    const listing = await this.prisma.listing.findFirst({
       where: {
         symbol: {
           equals: symbol,
@@ -255,6 +156,17 @@ export class StocksService {
       },
       include: {
         exchange: true,
+        stockPrices: {
+          take: 2,
+          orderBy: {
+            date: 'desc',
+          },
+        },
+        ajaibStockMarket: {
+          select: {
+            marketCap: true,
+          },
+        },
         company: {
           include: {
             country: true,
@@ -267,5 +179,110 @@ export class StocksService {
         },
       },
     });
+
+    if (!listing) {
+      return null;
+    }
+
+    return this.mapListingWithMetrics(listing);
+  }
+
+  private mapListingWithMetrics(item: any) {
+    const latestStockPrice = item.stockPrices?.[0];
+    const previousStockPrice = item.stockPrices?.[1];
+    const priceComparison = this.buildPriceComparison(
+      latestStockPrice,
+      previousStockPrice,
+    );
+
+    return {
+      listing: {
+        id: item.id,
+        symbol: item.symbol,
+        assetType: item.assetType,
+        isin: item.isin,
+        cusip: item.cusip,
+      },
+      exchange: {
+        code: item.exchange.code,
+        name: item.exchange.name,
+        timezone: item.exchange.timezone,
+        exchangeType: item.exchange.exchangeType,
+      },
+      company: {
+        id: item.company.id,
+        legalName: item.company.legalName,
+        displayName: item.company.displayName,
+        description: item.company.description,
+        website: item.company.website,
+        logoUrl: item.company.logoUrl,
+        ceo: item.company.ceo,
+        foundedYear: item.company.foundedYear,
+        employeeCount: item.company.employeeCount,
+        headquarters: item.company.headquarters,
+        status: item.company.status,
+      },
+      country: item.company.country,
+      sector: {
+        name: item.company.industry.sector.name,
+      },
+      industry: {
+        name: item.company.industry.name,
+      },
+      latestStockPrice:
+        latestStockPrice
+          ? {
+            date: latestStockPrice.date,
+            open: latestStockPrice.open.toString(),
+            high: latestStockPrice.high.toString(),
+            low: latestStockPrice.low.toString(),
+            close: latestStockPrice.close.toString(),
+            adjClose: latestStockPrice.adjClose?.toString() ?? null,
+            volume: latestStockPrice.volume.toString(),
+            value: latestStockPrice.value?.toString() ?? null,
+          }
+          : null,
+      priceComparison,
+      marketCap: item.ajaibStockMarket?.marketCap.toString() ?? null,
+    };
+  }
+
+  private buildPriceComparison(
+    latestStockPrice?: {
+      date: Date;
+      close: Prisma.Decimal;
+    },
+    previousStockPrice?: {
+      date: Date;
+      close: Prisma.Decimal;
+    },
+  ) {
+    if (!latestStockPrice || !previousStockPrice) {
+      return null;
+    }
+
+    const latestClose = latestStockPrice.close;
+    const previousClose = previousStockPrice.close;
+    const change = latestClose.sub(previousClose);
+    const changePct =
+      previousClose.isZero()
+        ? null
+        : change.div(previousClose).mul(100);
+    const direction =
+      change.gt(0)
+        ? 'UP'
+        : change.lt(0)
+          ? 'DOWN'
+          : 'FLAT';
+
+    return {
+      latestDate: latestStockPrice.date,
+      latestClose: latestClose.toString(),
+      previousDate: previousStockPrice.date,
+      previousClose: previousClose.toString(),
+      change: change.toString(),
+      changePct: changePct?.toString() ?? null,
+      direction,
+    };
   }
 }
