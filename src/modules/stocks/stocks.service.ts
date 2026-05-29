@@ -4,6 +4,36 @@ import { PeriodType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
 
+type QuarterlyIncomeStatementLike = {
+  companyId: string;
+  period: PeriodType;
+  fiscalYear: number;
+  fiscalQuarter: number | null;
+  periodEndDate: Date;
+  revenue: Prisma.Decimal | null;
+  cogs: Prisma.Decimal | null;
+  grossProfit: Prisma.Decimal | null;
+  operatingExpenses: Prisma.Decimal | null;
+  ebit: Prisma.Decimal | null;
+  incomeTaxExpense: Prisma.Decimal | null;
+  netIncome: Prisma.Decimal | null;
+};
+
+type AnnualIncomeStatementLike = {
+  companyId: string;
+  period: PeriodType;
+  fiscalYear: number;
+  fiscalQuarter: number | null;
+  periodEndDate: Date;
+  revenue: Prisma.Decimal | null;
+  cogs: Prisma.Decimal | null;
+  grossProfit: Prisma.Decimal | null;
+  operatingExpenses: Prisma.Decimal | null;
+  ebit: Prisma.Decimal | null;
+  incomeTaxExpense: Prisma.Decimal | null;
+  netIncome: Prisma.Decimal | null;
+};
+
 @Injectable()
 export class StocksService {
   constructor(
@@ -212,7 +242,7 @@ export class StocksService {
       return null;
     }
 
-    const statements = await this.prisma.incomeStatement.findMany({
+    const quarterlyStatements = await this.prisma.incomeStatement.findMany({
       where: {
         companyId: listing.companyId,
         period: {
@@ -232,12 +262,32 @@ export class StocksService {
           fiscalQuarter: 'desc',
         },
       ],
-      take: 8,
     });
 
-    const periods = statements
-      .slice()
-      .reverse()
+    const annualStatements = await this.prisma.incomeStatement.findMany({
+      where: {
+        companyId: listing.companyId,
+        period: PeriodType.ANNUAL,
+      },
+      orderBy: [
+        {
+          fiscalYear: 'desc',
+        },
+      ],
+    });
+
+    const statements = this.buildQuarterlyStatementsWithDerivedQ4(
+      quarterlyStatements,
+      annualStatements,
+    ).slice(0, 8);
+
+    if (statements.length === 0) {
+      return null;
+    }
+
+    const statementsChronological = statements.slice().reverse();
+
+    const periods = statementsChronological
       .map((statement) => ({
         key: `${statement.fiscalYear}-Q${statement.fiscalQuarter}`,
         label: this.formatPeriodLabel(
@@ -252,11 +302,9 @@ export class StocksService {
       }));
 
     const buildRowValues = (
-      picker: (statement: (typeof statements)[number]) => Prisma.Decimal | null,
+      picker: (statement: QuarterlyIncomeStatementLike) => Prisma.Decimal | null,
     ) =>
-      statements
-        .slice()
-        .reverse()
+      statementsChronological
         .map((statement) => {
           const raw = picker(statement);
           return {
@@ -331,6 +379,78 @@ export class StocksService {
         },
       },
     };
+  }
+
+  private buildQuarterlyStatementsWithDerivedQ4(
+    quarterlyStatements: QuarterlyIncomeStatementLike[],
+    annualStatements: AnnualIncomeStatementLike[],
+  ): QuarterlyIncomeStatementLike[] {
+    const statements = [...quarterlyStatements];
+    const q3ByYear = new Map<number, QuarterlyIncomeStatementLike>();
+    const hasQ4ByYear = new Set<number>();
+
+    for (const statement of quarterlyStatements) {
+      if (statement.period === PeriodType.Q3) {
+        q3ByYear.set(statement.fiscalYear, statement);
+      }
+
+      if (statement.period === PeriodType.Q4) {
+        hasQ4ByYear.add(statement.fiscalYear);
+      }
+    }
+
+    for (const annual of annualStatements) {
+      if (hasQ4ByYear.has(annual.fiscalYear)) {
+        continue;
+      }
+
+      const q3 = q3ByYear.get(annual.fiscalYear);
+      if (!q3) {
+        continue;
+      }
+
+      statements.push({
+        companyId: annual.companyId,
+        period: PeriodType.Q4,
+        fiscalYear: annual.fiscalYear,
+        fiscalQuarter: 4,
+        periodEndDate: annual.periodEndDate,
+        revenue: this.subtractDecimal(annual.revenue, q3.revenue),
+        cogs: this.subtractDecimal(annual.cogs, q3.cogs),
+        grossProfit: this.subtractDecimal(annual.grossProfit, q3.grossProfit),
+        operatingExpenses: this.subtractDecimal(
+          annual.operatingExpenses,
+          q3.operatingExpenses,
+        ),
+        ebit: this.subtractDecimal(annual.ebit, q3.ebit),
+        incomeTaxExpense: this.subtractDecimal(
+          annual.incomeTaxExpense,
+          q3.incomeTaxExpense,
+        ),
+        netIncome: this.subtractDecimal(annual.netIncome, q3.netIncome),
+      });
+    }
+
+    return statements.sort((a, b) => {
+      if (a.fiscalYear !== b.fiscalYear) {
+        return b.fiscalYear - a.fiscalYear;
+      }
+
+      const quarterA = a.fiscalQuarter ?? 0;
+      const quarterB = b.fiscalQuarter ?? 0;
+      return quarterB - quarterA;
+    });
+  }
+
+  private subtractDecimal(
+    minuend: Prisma.Decimal | null,
+    subtrahend: Prisma.Decimal | null,
+  ): Prisma.Decimal | null {
+    if (!minuend || !subtrahend) {
+      return null;
+    }
+
+    return minuend.sub(subtrahend);
   }
 
   private mapListingWithMetrics(item: any) {

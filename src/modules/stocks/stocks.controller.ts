@@ -31,13 +31,6 @@ export class StocksController {
     return this.stocksService.findAllSectors();
   }
 
-  @Get('emiten')
-  async getEmitens(
-    @Query() query: FindStocksQueryDto,
-  ) {
-    return this.stocksService.findAll(query);
-  }
-
   @Get('stocks/:symbol')
   async getStockBySymbol(
     @Param('symbol') symbol: string,
@@ -54,13 +47,6 @@ export class StocksController {
     }
 
     return stock;
-  }
-
-  @Get('emiten/:symbol')
-  async getEmitenBySymbol(
-    @Param('symbol') symbol: string,
-  ) {
-    return this.getStockBySymbol(symbol);
   }
 
   @Get('stocks/:symbol/financial-statements')
@@ -81,13 +67,6 @@ export class StocksController {
     return financialStatements;
   }
 
-  @Get('emiten/:symbol/financial-statements')
-  async getEmitenFinancialStatements(
-    @Param('symbol') symbol: string,
-  ) {
-    return this.getStockFinancialStatements(symbol);
-  }
-
   @Post('stocks/financial-statements/sync')
   async syncFinancialStatements(
     @Query() query: SyncFinancialStatementsQueryDto,
@@ -96,10 +75,4 @@ export class StocksController {
     return this.financialStatementSyncService.syncAllFromPython(year);
   }
 
-  @Post('emiten/financial-statements/sync')
-  async syncFinancialStatementsForEmitens(
-    @Query() query: SyncFinancialStatementsQueryDto,
-  ) {
-    return this.syncFinancialStatements(query);
-  }
 }
