@@ -3,6 +3,7 @@ import { PeriodType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
+import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 
 type QuarterlyIncomeStatementLike = {
   companyId: string;
@@ -381,6 +382,294 @@ export class StocksService {
     };
   }
 
+  async findOverviewBySymbol(
+    symbol: string,
+    query: TechnicalSeriesQueryDto,
+  ) {
+    const range = query.range ?? '1y';
+    const interval = query.interval ?? '1mo';
+    const fromDate = this.resolveFromDate(range);
+
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        symbol: {
+          equals: symbol,
+          mode: 'insensitive',
+        },
+      },
+      include: {
+        company: {
+          select: {
+            id: true,
+            legalName: true,
+            displayName: true,
+          },
+        },
+        stockPrices: {
+          where: {
+            date: {
+              gte: fromDate,
+            },
+          },
+          orderBy: {
+            date: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    const pricesAsc = listing.stockPrices;
+    const latest = pricesAsc[pricesAsc.length - 1];
+    const previous = pricesAsc[pricesAsc.length - 2];
+    if (!latest) {
+      return null;
+    }
+
+    const ma50 = this.calculateSma(pricesAsc, 50);
+    const ma200 = this.calculateSma(pricesAsc, 200);
+    const rsi14 = this.calculateRsi(pricesAsc, 14);
+    const avgVolume30 = this.calculateAvgVolume(pricesAsc, 30);
+
+    const change = previous ? latest.close.sub(previous.close) : null;
+    const changePct =
+      previous && !previous.close.isZero()
+        ? latest.close.sub(previous.close).div(previous.close).mul(100)
+        : null;
+
+    const signal = this.buildSimpleSignal({
+      latestClose: latest.close,
+      ma50,
+      ma200,
+      rsi14,
+    });
+
+    return {
+      listing: {
+        id: listing.id,
+        symbol: listing.symbol,
+      },
+      meta: {
+        period: {
+          range,
+          interval,
+          from: fromDate,
+          to: latest.date,
+          points: pricesAsc.length,
+        },
+      },
+      company: listing.company,
+      snapshot: {
+        date: latest.date,
+        close: latest.close.toString(),
+        change: change?.toString() ?? null,
+        changePct: changePct?.toString() ?? null,
+        volume: latest.volume.toString(),
+      },
+      indicators: {
+        ma50: ma50?.toString() ?? null,
+        ma200: ma200?.toString() ?? null,
+        rsi14: rsi14?.toString() ?? null,
+        avgVolume30: avgVolume30?.toString() ?? null,
+      },
+      signal,
+    };
+  }
+
+  async findTechnicalSeriesBySymbol(
+    symbol: string,
+    query: TechnicalSeriesQueryDto,
+  ) {
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        symbol: {
+          equals: symbol,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        symbol: true,
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    const fromDate = this.resolveFromDate(query.range ?? '1y');
+    const rawPrices = await this.prisma.stockPrice.findMany({
+      where: {
+        listingId: listing.id,
+        date: {
+          gte: fromDate,
+        },
+      },
+      orderBy: {
+        date: 'asc',
+      },
+      take: query.limit,
+    });
+
+    const sampledPrices = this.sampleByInterval(rawPrices, query.interval ?? '1mo');
+    const series = sampledPrices.map((point, index) => {
+      const slice = sampledPrices.slice(0, index + 1);
+      return {
+        date: point.date,
+        close: point.close.toString(),
+        volume: point.volume.toString(),
+        ma50: this.calculateSma(slice, 50)?.toString() ?? null,
+        ma200: this.calculateSma(slice, 200)?.toString() ?? null,
+        rsi14: this.calculateRsi(slice, 14)?.toString() ?? null,
+      };
+    });
+
+    return {
+      listing,
+      meta: {
+        range: query.range ?? '1y',
+        interval: query.interval ?? '1mo',
+        points: series.length,
+      },
+      series,
+    };
+  }
+
+  async findWyckoffBySymbol(
+    symbol: string,
+    query: TechnicalSeriesQueryDto,
+  ) {
+    const range = query.range ?? '1y';
+    const interval = query.interval ?? '1mo';
+    const fromDate = this.resolveFromDate(range);
+
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        symbol: {
+          equals: symbol,
+          mode: 'insensitive',
+        },
+      },
+      include: {
+        stockPrices: {
+          where: {
+            date: {
+              gte: fromDate,
+            },
+          },
+          orderBy: {
+            date: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    const pricesAsc = listing.stockPrices;
+    if (pricesAsc.length < 30) {
+      return {
+        listing: {
+          id: listing.id,
+          symbol: listing.symbol,
+        },
+        meta: {
+          period: {
+            range,
+            interval,
+            from: fromDate,
+            to: pricesAsc[pricesAsc.length - 1]?.date ?? null,
+            points: pricesAsc.length,
+          },
+        },
+        wyckoff: {
+          phase: 'INSUFFICIENT_DATA',
+          confidence: null,
+          notes: ['Data historis belum cukup untuk fase Wyckoff.'],
+        },
+      };
+    }
+
+    const latest = pricesAsc[pricesAsc.length - 1];
+    const ma50 = this.calculateSma(pricesAsc, 50);
+    const ma200 = this.calculateSma(pricesAsc, 200);
+    const rsi14 = this.calculateRsi(pricesAsc, 14);
+    const avgVolume30 = this.calculateAvgVolume(pricesAsc, 30);
+
+    const recent = pricesAsc.slice(-30);
+    const firstRecent = recent[0];
+    const recentReturnPct = latest.close.sub(firstRecent.close).div(firstRecent.close).mul(100);
+
+    const phase = this.resolveWyckoffPhase({
+      recentReturnPct,
+      latestClose: latest.close,
+      ma50,
+      ma200,
+      rsi14,
+      latestVolume: latest.volume,
+      avgVolume30,
+    });
+
+    return {
+      listing: {
+        id: listing.id,
+        symbol: listing.symbol,
+      },
+      meta: {
+        period: {
+          range,
+          interval,
+          from: fromDate,
+          to: latest.date,
+          points: pricesAsc.length,
+        },
+      },
+      wyckoff: phase,
+      indicators: {
+        asOf: latest.date,
+        close: latest.close.toString(),
+        ma50: ma50?.toString() ?? null,
+        ma200: ma200?.toString() ?? null,
+        rsi14: rsi14?.toString() ?? null,
+        avgVolume30: avgVolume30?.toString() ?? null,
+        latestVolume: latest.volume.toString(),
+        return30dPct: recentReturnPct.toString(),
+      },
+    };
+  }
+
+  async findTechnicalSummaryBySymbol(
+    symbol: string,
+    query: TechnicalSeriesQueryDto,
+  ) {
+    const [overview, wyckoff] = await Promise.all([
+      this.findOverviewBySymbol(symbol, query),
+      this.findWyckoffBySymbol(symbol, query),
+    ]);
+
+    if (!overview || !wyckoff) {
+      return null;
+    }
+
+    return {
+      listing: overview.listing,
+      company: overview.company,
+      meta: overview.meta,
+      overview: {
+        snapshot: overview.snapshot,
+        indicators: overview.indicators,
+        signal: overview.signal,
+      },
+      wyckoff: wyckoff.wyckoff,
+      wyckoffIndicators: wyckoff.indicators,
+    };
+  }
+
   private buildQuarterlyStatementsWithDerivedQ4(
     quarterlyStatements: QuarterlyIncomeStatementLike[],
     annualStatements: AnnualIncomeStatementLike[],
@@ -575,5 +864,204 @@ export class StocksService {
     }
 
     return value.div(1000000000).toDecimalPlaces(3).toString();
+  }
+
+  private resolveFromDate(range: '6m' | '1y' | '2y' | '5y') {
+    const today = new Date();
+    const from = new Date(today);
+    const rangeToMonths: Record<typeof range, number> = {
+      '6m': 6,
+      '1y': 12,
+      '2y': 24,
+      '5y': 60,
+    };
+
+    from.setUTCMonth(from.getUTCMonth() - rangeToMonths[range]);
+    return from;
+  }
+
+  private sampleByInterval<T extends { date: Date }>(
+    pricesAsc: T[],
+    interval: '1d' | '1w' | '1mo',
+  ): T[] {
+    if (interval === '1d') {
+      return pricesAsc;
+    }
+
+    const buckets = new Map<string, T>();
+    for (const point of pricesAsc) {
+      const date = point.date;
+      const key =
+        interval === '1w'
+          ? `${date.getUTCFullYear()}-W${this.getWeekOfYear(date)}`
+          : `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`;
+      buckets.set(key, point);
+    }
+
+    return Array.from(buckets.values()).sort(
+      (a, b) => a.date.getTime() - b.date.getTime(),
+    );
+  }
+
+  private getWeekOfYear(date: Date): number {
+    const temp = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNum = temp.getUTCDay() || 7;
+    temp.setUTCDate(temp.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(temp.getUTCFullYear(), 0, 1));
+    return Math.ceil((((temp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  }
+
+  private calculateSma(
+    pricesAsc: Array<{ close: Prisma.Decimal }>,
+    period: number,
+  ): Prisma.Decimal | null {
+    if (pricesAsc.length < period) {
+      return null;
+    }
+
+    const slice = pricesAsc.slice(-period);
+    const sum = slice.reduce(
+      (acc, item) => acc.add(item.close),
+      new Prisma.Decimal(0),
+    );
+
+    return sum.div(period);
+  }
+
+  private calculateAvgVolume(
+    pricesAsc: Array<{ volume: bigint }>,
+    period: number,
+  ): Prisma.Decimal | null {
+    if (pricesAsc.length < period) {
+      return null;
+    }
+
+    const slice = pricesAsc.slice(-period);
+    const sum = slice.reduce(
+      (acc, item) => acc.add(new Prisma.Decimal(item.volume.toString())),
+      new Prisma.Decimal(0),
+    );
+
+    return sum.div(period);
+  }
+
+  private calculateRsi(
+    pricesAsc: Array<{ close: Prisma.Decimal }>,
+    period: number,
+  ): Prisma.Decimal | null {
+    if (pricesAsc.length < period + 1) {
+      return null;
+    }
+
+    const recent = pricesAsc.slice(-(period + 1));
+    let gain = new Prisma.Decimal(0);
+    let loss = new Prisma.Decimal(0);
+
+    for (let i = 1; i < recent.length; i += 1) {
+      const delta = recent[i].close.sub(recent[i - 1].close);
+      if (delta.gt(0)) {
+        gain = gain.add(delta);
+      } else if (delta.lt(0)) {
+        loss = loss.add(delta.abs());
+      }
+    }
+
+    const avgGain = gain.div(period);
+    const avgLoss = loss.div(period);
+
+    if (avgLoss.isZero()) {
+      return new Prisma.Decimal(100);
+    }
+
+    const rs = avgGain.div(avgLoss);
+    return new Prisma.Decimal(100).sub(new Prisma.Decimal(100).div(rs.add(1)));
+  }
+
+  private buildSimpleSignal(input: {
+    latestClose: Prisma.Decimal;
+    ma50: Prisma.Decimal | null;
+    ma200: Prisma.Decimal | null;
+    rsi14: Prisma.Decimal | null;
+  }) {
+    let score = 0;
+
+    if (input.ma50 && input.latestClose.gt(input.ma50)) {
+      score += 1;
+    }
+
+    if (input.ma200 && input.latestClose.gt(input.ma200)) {
+      score += 1;
+    }
+
+    if (input.rsi14 && input.rsi14.gt(45) && input.rsi14.lt(70)) {
+      score += 1;
+    }
+
+    if (score >= 3) {
+      return 'OVERWEIGHT';
+    }
+
+    if (score === 2) {
+      return 'NEUTRAL';
+    }
+
+    return 'UNDERWEIGHT';
+  }
+
+  private resolveWyckoffPhase(input: {
+    recentReturnPct: Prisma.Decimal;
+    latestClose: Prisma.Decimal;
+    ma50: Prisma.Decimal | null;
+    ma200: Prisma.Decimal | null;
+    rsi14: Prisma.Decimal | null;
+    latestVolume: bigint;
+    avgVolume30: Prisma.Decimal | null;
+  }) {
+    const notes: string[] = [];
+    const volumeRatio =
+      input.avgVolume30 && !input.avgVolume30.isZero()
+        ? new Prisma.Decimal(input.latestVolume.toString()).div(input.avgVolume30)
+        : null;
+
+    if (input.ma50 && input.latestClose.gt(input.ma50)) {
+      notes.push('Harga berada di atas MA50 (momentum menengah positif).');
+    } else {
+      notes.push('Harga masih di bawah MA50 (momentum menengah lemah).');
+    }
+
+    if (input.ma200 && input.latestClose.gt(input.ma200)) {
+      notes.push('Harga berada di atas MA200 (struktur jangka panjang cenderung bullish).');
+    } else {
+      notes.push('Harga masih di bawah MA200 (struktur jangka panjang belum pulih).');
+    }
+
+    if (volumeRatio) {
+      notes.push(`Rasio volume terhadap rata-rata 30 hari: ${volumeRatio.toDecimalPlaces(2).toString()}x.`);
+    }
+
+    let phase = 'REACCUMULATION';
+    let confidence = 0.55;
+
+    if (input.recentReturnPct.gte(8)) {
+      phase = 'MARKUP';
+      confidence = 0.7;
+    } else if (input.recentReturnPct.lte(-8)) {
+      phase = 'MARKDOWN';
+      confidence = 0.7;
+    } else if (
+      input.rsi14 &&
+      input.rsi14.gte(60) &&
+      volumeRatio &&
+      volumeRatio.gte(1.1)
+    ) {
+      phase = 'MARKUP_II';
+      confidence = 0.65;
+    }
+
+    return {
+      phase,
+      confidence,
+      notes,
+    };
   }
 }
