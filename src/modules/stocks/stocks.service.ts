@@ -3,6 +3,7 @@ import { PeriodType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
+import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
 import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 
 type QuarterlyIncomeStatementLike = {
@@ -18,6 +19,7 @@ type QuarterlyIncomeStatementLike = {
   ebit: Prisma.Decimal | null;
   incomeTaxExpense: Prisma.Decimal | null;
   netIncome: Prisma.Decimal | null;
+  eps: Prisma.Decimal | null;
 };
 
 type AnnualIncomeStatementLike = {
@@ -33,6 +35,7 @@ type AnnualIncomeStatementLike = {
   ebit: Prisma.Decimal | null;
   incomeTaxExpense: Prisma.Decimal | null;
   netIncome: Prisma.Decimal | null;
+  eps: Prisma.Decimal | null;
 };
 
 @Injectable()
@@ -670,6 +673,161 @@ export class StocksService {
     };
   }
 
+  async findKeyStatisticsBySymbol(
+    symbol: string,
+    query: KeyStatisticsQueryDto,
+  ) {
+    const metric = query.metric ?? 'netIncome';
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        symbol: {
+          equals: symbol,
+          mode: 'insensitive',
+        },
+      },
+      include: {
+        company: {
+          select: {
+            id: true,
+            legalName: true,
+            displayName: true,
+          },
+        },
+        ajaibStockMarket: {
+          select: {
+            marketCap: true,
+          },
+        },
+        stockPrices: {
+          take: 1,
+          orderBy: {
+            date: 'desc',
+          },
+        },
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    const companyId = listing.company.id;
+    const [quarterlyStatements, annualStatements] = await Promise.all([
+      this.prisma.incomeStatement.findMany({
+        where: {
+          companyId,
+          period: {
+            in: [PeriodType.Q1, PeriodType.Q2, PeriodType.Q3, PeriodType.Q4],
+          },
+        },
+        orderBy: [
+          { fiscalYear: 'desc' },
+          { fiscalQuarter: 'desc' },
+        ],
+        take: 12,
+      }),
+      this.prisma.incomeStatement.findMany({
+        where: {
+          companyId,
+          period: PeriodType.ANNUAL,
+        },
+        orderBy: [{ fiscalYear: 'desc' }],
+        take: 6,
+      }),
+    ]);
+
+    const normalizedQuarterly = this.buildQuarterlyStatementsWithDerivedQ4(
+      quarterlyStatements,
+      annualStatements,
+    );
+    const selectedMetric = this.buildQuarterMetricSeries(normalizedQuarterly, metric);
+
+    return {
+      listing: {
+        id: listing.id,
+        symbol: listing.symbol,
+      },
+      company: listing.company,
+      metric,
+      quarterlyAndProjection: selectedMetric,
+    };
+  }
+
+  async findKeyStatisticsSummaryBySymbol(symbol: string) {
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        symbol: {
+          equals: symbol,
+          mode: 'insensitive',
+        },
+      },
+      include: {
+        company: {
+          select: {
+            id: true,
+            legalName: true,
+            displayName: true,
+          },
+        },
+        ajaibStockMarket: {
+          select: {
+            marketCap: true,
+          },
+        },
+      },
+    });
+
+    if (!listing) {
+      return null;
+    }
+
+    const companyId = listing.company.id;
+    const [latestValuation, latestSharesData] = await Promise.all([
+      this.prisma.valuationRatio.findFirst({
+        where: { companyId },
+        orderBy: { date: 'desc' },
+      }),
+      this.prisma.sharesData.findFirst({
+        where: { companyId },
+        orderBy: { date: 'desc' },
+      }),
+    ]);
+
+    return {
+      listing: {
+        id: listing.id,
+        symbol: listing.symbol,
+      },
+      company: listing.company,
+      valuationSummary: {
+        marketCap:
+          this.resolveMarketCap(
+            latestSharesData?.marketCap ?? null,
+            latestValuation?.marketCap ?? null,
+            listing.ajaibStockMarket?.marketCap ?? null,
+          )?.toString() ?? null,
+        enterpriseValue: latestValuation?.enterpriseValue?.toString() ?? null,
+        sharesOutstanding: latestSharesData?.sharesOutstanding?.toString() ?? null,
+        freeFloatPct:
+          latestSharesData &&
+            latestSharesData.sharesFloat &&
+            latestSharesData.sharesOutstanding > 0n
+            ? new Prisma.Decimal(latestSharesData.sharesFloat.toString())
+              .div(new Prisma.Decimal(latestSharesData.sharesOutstanding.toString()))
+              .mul(100)
+              .toDecimalPlaces(2)
+              .toString()
+            : null,
+        peTtm: latestValuation?.peRatio?.toString() ?? null,
+      },
+      dividendAndYield: {
+        divTtm: null,
+        payoutRatio: latestValuation?.dividendYield?.toString() ?? null,
+        divYield: latestValuation?.dividendYield?.toString() ?? null,
+      },
+    };
+  }
+
   private buildQuarterlyStatementsWithDerivedQ4(
     quarterlyStatements: QuarterlyIncomeStatementLike[],
     annualStatements: AnnualIncomeStatementLike[],
@@ -717,6 +875,7 @@ export class StocksService {
           q3.incomeTaxExpense,
         ),
         netIncome: this.subtractDecimal(annual.netIncome, q3.netIncome),
+        eps: this.subtractDecimal(annual.eps, q3.eps),
       });
     }
 
@@ -1062,6 +1221,138 @@ export class StocksService {
       phase,
       confidence,
       notes,
+    };
+  }
+
+  private resolveMarketCap(
+    sharesDataMarketCap: Prisma.Decimal | null,
+    valuationMarketCap: Prisma.Decimal | null,
+    ajaibMarketCap: Prisma.Decimal | null,
+  ): Prisma.Decimal | null {
+    const isPositive = (value: Prisma.Decimal | null) =>
+      value !== null && value.gt(0);
+
+    if (isPositive(sharesDataMarketCap)) {
+      return sharesDataMarketCap;
+    }
+
+    if (isPositive(valuationMarketCap)) {
+      return valuationMarketCap;
+    }
+
+    if (isPositive(ajaibMarketCap)) {
+      return ajaibMarketCap;
+    }
+
+    return sharesDataMarketCap ?? valuationMarketCap ?? ajaibMarketCap;
+  }
+
+  private buildQuarterMetricSeries(
+    quarterlyStatements: QuarterlyIncomeStatementLike[],
+    metric: 'netIncome' | 'eps' | 'revenue',
+  ) {
+    const sortedAsc = quarterlyStatements
+      .slice()
+      .sort((a, b) => {
+        if (a.fiscalYear !== b.fiscalYear) {
+          return a.fiscalYear - b.fiscalYear;
+        }
+        return (a.fiscalQuarter ?? 0) - (b.fiscalQuarter ?? 0);
+      });
+
+    const latest4 = sortedAsc.slice(-4);
+    const quarterMap = new Map(
+      sortedAsc.map((s) => [`${s.fiscalYear}-Q${s.fiscalQuarter}`, s]),
+    );
+
+    const valueOf = (s: QuarterlyIncomeStatementLike): Prisma.Decimal | null => {
+      if (metric === 'netIncome') {
+        return s.netIncome;
+      }
+      if (metric === 'revenue') {
+        return s.revenue;
+      }
+      return s.eps;
+    };
+
+    const latest4Rows = latest4.map((statement) => {
+      const current = valueOf(statement);
+      const prevYear = quarterMap.get(
+        `${statement.fiscalYear - 1}-Q${statement.fiscalQuarter}`,
+      );
+      const prevValue = prevYear ? valueOf(prevYear) : null;
+      const yoy =
+        current && prevValue && !prevValue.isZero()
+          ? current.sub(prevValue).div(prevValue).mul(100)
+          : null;
+
+      return {
+        period: `Q${statement.fiscalQuarter} ${statement.fiscalYear}`,
+        value: current?.toString() ?? null,
+        growthYoY: yoy?.toDecimalPlaces(2).toString() ?? null,
+      };
+    });
+
+    const ttm = latest4
+      .map((s) => valueOf(s))
+      .reduce<Prisma.Decimal | null>((acc, v) => {
+        if (!v) {
+          return acc;
+        }
+        if (!acc) {
+          return v;
+        }
+        return acc.add(v);
+      }, null);
+
+    const prev4 = sortedAsc.slice(-8, -4);
+    const prevTtm = prev4
+      .map((s) => valueOf(s))
+      .reduce<Prisma.Decimal | null>((acc, v) => {
+        if (!v) {
+          return acc;
+        }
+        if (!acc) {
+          return v;
+        }
+        return acc.add(v);
+      }, null);
+    const ttmYoY =
+      ttm && prevTtm && !prevTtm.isZero()
+        ? ttm.sub(prevTtm).div(prevTtm).mul(100)
+        : null;
+
+    const growthValues = latest4Rows
+      .map((row) => (row.growthYoY ? new Prisma.Decimal(row.growthYoY) : null))
+      .filter((v): v is Prisma.Decimal => v !== null);
+    const avgGrowth =
+      growthValues.length > 0
+        ? growthValues.reduce((a, b) => a.add(b), new Prisma.Decimal(0)).div(growthValues.length)
+        : new Prisma.Decimal(0);
+
+    const chartBars = latest4Rows.map((row) => ({
+      label: row.period,
+      value: row.value,
+      type: 'actual' as const,
+    }));
+
+    const tableRows = [
+      ...latest4Rows,
+      {
+        period: 'TTM',
+        value: ttm?.toString() ?? null,
+        growthYoY: ttmYoY?.toDecimalPlaces(2).toString() ?? null,
+      },
+    ];
+
+    return {
+      chart: chartBars,
+      table: tableRows,
+      ttm: {
+        value: ttm?.toString() ?? null,
+        avgGrowthYoY: avgGrowth.toDecimalPlaces(2).toString(),
+        ttmGrowthYoY: ttmYoY?.toDecimalPlaces(2).toString() ?? null,
+      },
     };
   }
 }

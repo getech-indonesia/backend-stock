@@ -9,6 +9,7 @@ import {
 
 import { FinancialStatementSyncService } from '../../jobs/stock-sync/sync/financial-statement-sync.service';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
+import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
 import { SyncFinancialStatementsQueryDto } from './dto/sync-financial-statements-query.dto';
 import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 import { StocksService } from './stocks.service';
@@ -142,6 +143,40 @@ export class StocksController {
     }
 
     return summary;
+  }
+
+  @Get('stocks/:symbol/key-statistics')
+  async getStockKeyStatistics(
+    @Param('symbol') symbol: string,
+    @Query() query: KeyStatisticsQueryDto,
+  ) {
+    const data = await this.stocksService.findKeyStatisticsBySymbol(
+      symbol,
+      query,
+    );
+
+    if (!data) {
+      throw new NotFoundException(
+        `Stock with symbol ${symbol} not found`,
+      );
+    }
+
+    return data;
+  }
+
+  @Get('stocks/:symbol/key-statistics-summary')
+  async getStockKeyStatisticsSummary(
+    @Param('symbol') symbol: string,
+  ) {
+    const data = await this.stocksService.findKeyStatisticsSummaryBySymbol(symbol);
+
+    if (!data) {
+      throw new NotFoundException(
+        `Stock with symbol ${symbol} not found`,
+      );
+    }
+
+    return data;
   }
 
   @Post('stocks/financial-statements/sync')
