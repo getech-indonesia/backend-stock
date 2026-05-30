@@ -319,6 +319,9 @@ export class StockSyncService {
                         paymentDate:
                             dividend.paymentDate,
                         dps: dividend.dps,
+                        cashDividendTotal:
+                            dividend.cashDividendTotal ??
+                            null,
                         currency:
                             dividend.currency ??
                             'IDR',

@@ -26,6 +26,7 @@ type EmitenApiItem = {
         }>;
     };
     dividends?: Array<{
+        [key: string]: unknown;
         Jenis?: string;
         TahunBuku?: string;
         TanggalCum?: string;
@@ -284,6 +285,10 @@ export class IdxStockScraper {
                                         ),
                                     dps:
                                         dividend.CashDividenPerSaham,
+                                    cashDividendTotal:
+                                        this.extractCashDividendTotal(
+                                            dividend,
+                                        ),
                                     currency:
                                         dividend.CashDividenPerSahamMU ??
                                         'IDR',
@@ -424,6 +429,125 @@ export class IdxStockScraper {
         }
 
         return parsedDate;
+    }
+
+    private extractCashDividendTotal(
+        dividend: Record<string, unknown>,
+    ): number | undefined {
+        const directCandidates = [
+            'CashDividendTotal',
+            'CashDividenTotal',
+            'TotalCashDividend',
+            'TotalCashDividen',
+            'CashDividendAmount',
+            'DividendAmount',
+        ];
+
+        for (const key of directCandidates) {
+            const value =
+                dividend[key];
+            const parsed =
+                this.parseLooseNumber(
+                    value,
+                );
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+
+        const keywordPatterns = [
+            'cash dividend',
+            'cash dividends',
+            'dividend',
+            'dividends',
+            'distribution of cash dividends',
+            'distribution of cash dividend',
+            'cash dividend distribution',
+            'cash dividend distributed',
+            'total cash dividend',
+            'cash dividend amount',
+            'distributions of cash dividends',
+        ];
+
+        for (const [rawKey, rawValue] of Object.entries(dividend)) {
+            const normalizedKey =
+                rawKey
+                    .toLowerCase()
+                    .replace(/[_-]+/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+
+            const match =
+                keywordPatterns.some(
+                    (
+                        keyword,
+                    ) =>
+                        normalizedKey.includes(
+                            keyword,
+                        ),
+                );
+
+            if (!match) {
+                continue;
+            }
+
+            const parsed =
+                this.parseLooseNumber(
+                    rawValue,
+                );
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+
+        return undefined;
+    }
+
+    private parseLooseNumber(
+        value: unknown,
+    ): number | undefined {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+
+        if (typeof value !== 'string') {
+            return undefined;
+        }
+
+        const trimmed =
+            value.trim();
+        if (!trimmed) {
+            return undefined;
+        }
+
+        const isNegative =
+            trimmed.startsWith('(') &&
+            trimmed.endsWith(')');
+        const numericPart =
+            trimmed
+                .replace(/[()]/g, '')
+                .replace(/[^0-9,.-]/g, '');
+
+        if (!numericPart) {
+            return undefined;
+        }
+
+        const normalized =
+            numericPart.includes(',') && !numericPart.includes('.')
+                ? numericPart.replace(/,/g, '')
+                : numericPart.replace(/,/g, '');
+        const parsed =
+            Number.parseFloat(
+                normalized,
+            );
+
+        if (!Number.isFinite(parsed)) {
+            return undefined;
+        }
+
+        return isNegative
+            ? -parsed
+            : parsed;
     }
 
 }

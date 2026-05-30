@@ -12,6 +12,7 @@ type RawDividendDto = {
     recordDate?: Date;
     paymentDate?: Date;
     dps?: number;
+    cashDividendTotal?: number;
     currency?: string;
 };
 
