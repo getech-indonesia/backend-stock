@@ -774,6 +774,12 @@ export class StocksService {
             marketCap: true,
           },
         },
+        stockPrices: {
+          take: 1,
+          orderBy: {
+            date: 'desc',
+          },
+        },
       },
     });
 
@@ -782,7 +788,7 @@ export class StocksService {
     }
 
     const companyId = listing.company.id;
-    const [latestValuation, latestSharesData] = await Promise.all([
+    const [latestValuation, latestSharesData, quarterlyStatements, annualStatements] = await Promise.all([
       this.prisma.valuationRatio.findFirst({
         where: { companyId },
         orderBy: { date: 'desc' },
@@ -791,7 +797,38 @@ export class StocksService {
         where: { companyId },
         orderBy: { date: 'desc' },
       }),
+      this.prisma.incomeStatement.findMany({
+        where: {
+          companyId,
+          period: {
+            in: [PeriodType.Q1, PeriodType.Q2, PeriodType.Q3, PeriodType.Q4],
+          },
+        },
+        orderBy: [
+          { fiscalYear: 'desc' },
+          { fiscalQuarter: 'desc' },
+        ],
+        take: 12,
+      }),
+      this.prisma.incomeStatement.findMany({
+        where: {
+          companyId,
+          period: PeriodType.ANNUAL,
+        },
+        orderBy: [{ fiscalYear: 'desc' }],
+        take: 6,
+      }),
     ]);
+    const normalizedQuarterly = this.buildQuarterlyStatementsWithDerivedQ4(
+      quarterlyStatements,
+      annualStatements,
+    );
+    const latestPrice = listing.stockPrices[0]?.close ?? null;
+    const peTtm = this.calculatePeTtm(
+      latestPrice,
+      normalizedQuarterly,
+      latestSharesData?.sharesOutstanding ?? null,
+    );
 
     return {
       listing: {
@@ -818,7 +855,7 @@ export class StocksService {
               .toDecimalPlaces(2)
               .toString()
             : null,
-        peTtm: latestValuation?.peRatio?.toString() ?? null,
+        peTtm: peTtm ?? latestValuation?.peRatio?.toString() ?? null,
       },
       dividendAndYield: {
         divTtm: null,
@@ -1245,6 +1282,59 @@ export class StocksService {
     }
 
     return sharesDataMarketCap ?? valuationMarketCap ?? ajaibMarketCap;
+  }
+
+  private calculatePeTtm(
+    latestPrice: Prisma.Decimal | null,
+    quarterlyStatements: QuarterlyIncomeStatementLike[],
+    sharesOutstanding: bigint | null,
+  ): string | null {
+    if (!latestPrice) {
+      return null;
+    }
+
+    const sortedAsc = quarterlyStatements
+      .slice()
+      .sort((a, b) => {
+        if (a.fiscalYear !== b.fiscalYear) {
+          return a.fiscalYear - b.fiscalYear;
+        }
+        return (a.fiscalQuarter ?? 0) - (b.fiscalQuarter ?? 0);
+      });
+    const latest4 = sortedAsc.slice(-4);
+
+    const epsTtmFromEps = latest4.reduce<Prisma.Decimal | null>((acc, row) => {
+      if (!row.eps) {
+        return acc;
+      }
+      if (!acc) {
+        return row.eps;
+      }
+      return acc.add(row.eps);
+    }, null);
+
+    let epsTtm = epsTtmFromEps;
+    if (!epsTtm && sharesOutstanding && sharesOutstanding > 0n) {
+      const netIncomeTtm = latest4.reduce<Prisma.Decimal | null>((acc, row) => {
+        if (!row.netIncome) {
+          return acc;
+        }
+        if (!acc) {
+          return row.netIncome;
+        }
+        return acc.add(row.netIncome);
+      }, null);
+
+      if (netIncomeTtm) {
+        epsTtm = netIncomeTtm.div(new Prisma.Decimal(sharesOutstanding.toString()));
+      }
+    }
+
+    if (!epsTtm || epsTtm.isZero()) {
+      return null;
+    }
+
+    return latestPrice.div(epsTtm).toDecimalPlaces(2).toString();
   }
 
   private buildQuarterMetricSeries(
