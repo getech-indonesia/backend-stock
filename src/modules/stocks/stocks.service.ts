@@ -712,7 +712,11 @@ export class StocksService {
     }
 
     const companyId = listing.company.id;
-    const [quarterlyStatements, annualStatements] = await Promise.all([
+    const [latestSharesData, quarterlyStatements, annualStatements] = await Promise.all([
+      this.prisma.sharesData.findFirst({
+        where: { companyId },
+        orderBy: { date: 'desc' },
+      }),
       this.prisma.incomeStatement.findMany({
         where: {
           companyId,
@@ -740,7 +744,11 @@ export class StocksService {
       quarterlyStatements,
       annualStatements,
     );
-    const selectedMetric = this.buildQuarterMetricSeries(normalizedQuarterly, metric);
+    const selectedMetric = this.buildQuarterMetricSeries(
+      normalizedQuarterly,
+      metric,
+      latestSharesData?.sharesOutstanding ?? null,
+    );
 
     return {
       listing: {
@@ -1340,6 +1348,7 @@ export class StocksService {
   private buildQuarterMetricSeries(
     quarterlyStatements: QuarterlyIncomeStatementLike[],
     metric: 'netIncome' | 'eps' | 'revenue',
+    sharesOutstanding: bigint | null,
   ) {
     const sortedAsc = quarterlyStatements
       .slice()
@@ -1362,7 +1371,13 @@ export class StocksService {
       if (metric === 'revenue') {
         return s.revenue;
       }
-      return s.eps;
+      if (s.eps) {
+        return s.eps;
+      }
+      if (s.netIncome && sharesOutstanding && sharesOutstanding > 0n) {
+        return s.netIncome.div(new Prisma.Decimal(sharesOutstanding.toString()));
+      }
+      return null;
     };
 
     const latest4Rows = latest4.map((statement) => {
