@@ -178,21 +178,32 @@ export class FinancialStatementSyncService {
     let balanceSheetsUpserted = 0;
     let cashFlowStatementsUpserted = 0;
 
+    const totalCompanies = companies.length;
+    let currentIndex = 0;
+
     for (const company of companies) {
+      currentIndex++;
       const symbol = company.listings[0]?.symbol;
 
       if (!symbol) {
         companiesSkipped++;
         this.logger.warn(
-          `Skipping company ${company.id} because it has no listing symbol`,
+          `[${currentIndex}/${totalCompanies}] Skipping company ${company.id} because it has no listing symbol`,
         );
         continue;
       }
+
+      this.logger.log(
+        `[${currentIndex}/${totalCompanies}] Sync financial statement for ${symbol} (${company.id}) year=${year} started`,
+      );
 
       const payload = await this.fetchFinancialStatement(symbol, year);
 
       if (!payload) {
         companiesFailed++;
+        this.logger.warn(
+          `[${currentIndex}/${totalCompanies}] Failed to fetch financial statement for ${symbol} (${company.id}) year=${year}`,
+        );
         continue;
       }
 
@@ -221,7 +232,7 @@ export class FinancialStatementSyncService {
       companiesSucceeded++;
 
       this.logger.log(
-        `Financial statement synced for ${symbol} (${company.id}). income=${incomeCount} balance=${balanceCount} cashflow=${cashFlowCount}`,
+        `[${currentIndex}/${totalCompanies}] Financial statement synced for ${symbol} (${company.id}). income=${incomeCount} balance=${balanceCount} cashflow=${cashFlowCount}`,
       );
     }
 

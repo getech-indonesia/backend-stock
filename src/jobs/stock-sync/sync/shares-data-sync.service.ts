@@ -61,8 +61,12 @@ export class SharesDataSyncService {
 
         let recordsUpserted = 0;
         let skipped = 0;
+        const totalCompanies =
+            companies.length;
+        let currentIndex = 0;
 
         for (const company of companies) {
+            currentIndex++;
             const symbol =
                 company.listings[0]
                     ?.symbol;
@@ -70,10 +74,14 @@ export class SharesDataSyncService {
             if (!symbol) {
                 skipped++;
                 this.logger.warn(
-                    `Skipping company ${company.id} because it has no listing symbol`,
+                    `[${currentIndex}/${totalCompanies}] Skipping company ${company.id} because it has no listing symbol`,
                 );
                 continue;
             }
+
+            this.logger.log(
+                `[${currentIndex}/${totalCompanies}] Sync shares data for ${symbol} (${company.id}) started`,
+            );
 
             const payloads =
                 await this.fetchSharesData(
@@ -82,6 +90,9 @@ export class SharesDataSyncService {
 
             if (!payloads) {
                 skipped++;
+                this.logger.warn(
+                    `[${currentIndex}/${totalCompanies}] No shares data payload for ${symbol} (${company.id})`,
+                );
                 continue;
             }
 
@@ -95,7 +106,7 @@ export class SharesDataSyncService {
                 if (!snapshotDate) {
                     skipped++;
                     this.logger.warn(
-                        `Skipping symbol ${symbol} because date is invalid: ${payload.date ?? 'N/A'}`,
+                        `[${currentIndex}/${totalCompanies}] Skipping symbol ${symbol} because date is invalid: ${payload.date ?? 'N/A'}`,
                     );
                     continue;
                 }
@@ -106,7 +117,7 @@ export class SharesDataSyncService {
                 ) {
                     skipped++;
                     this.logger.warn(
-                        `Skipping symbol ${symbol} on ${payload.date} because sharesOutstanding is missing`,
+                        `[${currentIndex}/${totalCompanies}] Skipping symbol ${symbol} on ${payload.date} because sharesOutstanding is missing`,
                     );
                     continue;
                 }
@@ -187,7 +198,7 @@ export class SharesDataSyncService {
             }
 
             this.logger.log(
-                `Shares data synced for ${symbol} (${company.id}) with ${companyRecordsUpserted} record(s)`,
+                `[${currentIndex}/${totalCompanies}] Shares data synced for ${symbol} (${company.id}) with ${companyRecordsUpserted} record(s)`,
             );
         }
 
@@ -259,7 +270,7 @@ export class SharesDataSyncService {
             }
 
             this.logger.warn(
-                `Failed to parse shares data for ${symbol}. body=${JSON.stringify(payload).slice(0, 200)}`,
+                `Failed to parse shares data for ${symbol}. body=${this.truncateForLog(payload)}`,
             );
             return null;
         } catch (error) {
@@ -276,17 +287,11 @@ export class SharesDataSyncService {
                     ? axiosError
                         .response
                         ?.data
-                        .slice(
-                            0,
-                            200,
-                        )
-                    : JSON.stringify(
+                        .slice(0, 200)
+                    : this.truncateForLog(
                         axiosError
                             .response
                             ?.data,
-                    ).slice(
-                        0,
-                        200,
                     );
 
             this.logger.warn(
@@ -329,6 +334,41 @@ export class SharesDataSyncService {
             path,
             `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`,
         ).toString();
+    }
+
+    private truncateForLog(
+        value: unknown,
+        maxLength = 200,
+    ): string {
+        if (value == null) {
+            return 'N/A';
+        }
+
+        if (typeof value === 'string') {
+            return value.slice(
+                0,
+                maxLength,
+            );
+        }
+
+        try {
+            const serialized =
+                JSON.stringify(
+                    value,
+                );
+            if (!serialized) {
+                return 'N/A';
+            }
+            return serialized.slice(
+                0,
+                maxLength,
+            );
+        } catch {
+            return String(value).slice(
+                0,
+                maxLength,
+            );
+        }
     }
 
 }
