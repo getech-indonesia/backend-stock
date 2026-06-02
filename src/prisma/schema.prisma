@@ -104,6 +104,19 @@ enum NoteType {
     PRESS_RELEASE
 }
 
+enum PubExStatus {
+    PENDING
+    PROCESSING
+    DONE
+    FAILED
+}
+
+enum PubExDocumentType {
+    PUBLIC_EXPOSE
+    PAPARAN_PUBLIK
+    ANNUAL_REPORT
+}
+
 // ============================================================
 // USER
 // ============================================================
@@ -223,6 +236,7 @@ model Company {
     corporateActions    CorporateAction[]
     financialNotes      FinancialNote[]
     annualReports       AnnualReport[]
+    pubExes             PubEx[]
 
     @@map("companies")
 }
@@ -836,4 +850,54 @@ model AnnualReport {
 
     @@unique([companyId, fiscalYear, language])
     @@map("annual_reports")
+}
+
+model PubEx {
+    id           String            @id @default(uuid())
+    companyId    String
+    fiscalYear   Int
+    documentType PubExDocumentType
+
+    // File info
+    originalFileName String
+    filePath         String
+    fileSize         Int
+    mimeType         String // application/pdf or xlsx
+
+    // Job tracking
+    jobId        String?     @unique
+    status       PubExStatus @default(PENDING)
+    errorMessage String?
+
+    // Parsing result
+    result     Json? // raw hasil parsing dari Python/Claude
+    confidence Decimal? @db.Decimal(5, 4) // 0.0000 - 1.0000
+
+    uploadedBy String? // userId admin yang upload
+
+    createdAt   DateTime  @default(now())
+    updatedAt   DateTime  @updatedAt
+    processedAt DateTime?
+
+    company  Company        @relation(fields: [companyId], references: [id])
+    segments PubExSegment[]
+
+    @@map("pubex_documents")
+}
+
+model PubExSegment {
+    id      String @id @default(uuid())
+    pubExId String
+
+    segmentName  String // "Corporate Banking", "Batubara Thermal"
+    metricName   String // "Revenue", "Volume Produksi", "NPL"
+    value        Decimal? @db.Decimal(24, 4)
+    unit         String? // "T", "%", "MT", "IDR"
+    period       String? // "Q4 2025", "FY 2024"
+    growthYoy    Decimal? @db.Decimal(8, 4) // persentase growth
+    contribution Decimal? @db.Decimal(8, 4) // kontribusi % dari total
+
+    pubEx PubEx @relation(fields: [pubExId], references: [id], onDelete: Cascade)
+
+    @@map("pubex_segments")
 }
