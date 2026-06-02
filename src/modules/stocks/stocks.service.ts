@@ -4,6 +4,7 @@ import { PeriodType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
 import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
+import { CandlesQueryDto } from './dto/candles-query.dto';
 import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 
 type QuarterlyIncomeStatementLike = {
@@ -482,10 +483,13 @@ export class StocksService {
     };
   }
 
-  async findTechnicalSeriesBySymbol(
+  async findCandlesBySymbol(
     symbol: string,
-    query: TechnicalSeriesQueryDto,
+    query: CandlesQueryDto,
   ) {
+    const interval = query.interval ?? '1d';
+    const limit = query.limit ?? 365;
+
     const listing = await this.prisma.listing.findFirst({
       where: {
         symbol: {
@@ -503,42 +507,250 @@ export class StocksService {
       return null;
     }
 
-    const fromDate = this.resolveFromDate(query.range ?? '1y');
-    const rawPrices = await this.prisma.stockPrice.findMany({
+    if (interval === '1d') {
+      return this.buildDailyCandlesResponse(listing, limit, query.before);
+    }
+
+    return this.buildAggregatedCandlesResponse(
+      listing,
+      interval,
+      limit,
+      query.before,
+    );
+  }
+
+  private async buildDailyCandlesResponse(
+    listing: { id: string; symbol: string },
+    limit: number,
+    before?: number,
+  ) {
+    const beforeDate = before !== undefined
+      ? new Date(before * 1000)
+      : undefined;
+
+    const rows = await this.prisma.stockPrice.findMany({
       where: {
         listingId: listing.id,
+        ...(beforeDate ? { date: { lt: beforeDate } } : {}),
+      },
+      orderBy: { date: 'desc' },
+      take: limit + 1,
+      select: {
+        date: true,
+        open: true,
+        high: true,
+        low: true,
+        close: true,
+        volume: true,
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const candles = rows
+      .slice(0, limit)
+      .reverse()
+      .map((row) => this.mapStockPriceToCandle(row));
+
+    return this.buildCandlesPayload(listing.symbol, '1D', candles, hasMore);
+  }
+
+  private async buildAggregatedCandlesResponse(
+    listing: { id: string; symbol: string },
+    interval: '1w' | '1mo',
+    limit: number,
+    before?: number,
+  ) {
+    const beforeDate = before !== undefined
+      ? new Date(before * 1000)
+      : undefined;
+    const dailyFetchCap = Math.min(limit * (interval === '1w' ? 7 : 31) + 60, 5000);
+
+    const dailyRows = await this.prisma.stockPrice.findMany({
+      where: {
+        listingId: listing.id,
+        ...(beforeDate ? { date: { lt: beforeDate } } : {}),
+      },
+      orderBy: { date: 'desc' },
+      take: dailyFetchCap,
+      select: {
+        date: true,
+        open: true,
+        high: true,
+        low: true,
+        close: true,
+        volume: true,
+      },
+    });
+
+    let candles = this.aggregateDailyToCandles(
+      dailyRows.slice().reverse(),
+      interval,
+    );
+
+    if (before !== undefined) {
+      candles = candles.filter((candle) => candle.time < before);
+    }
+
+    const hasMoreInBatch = candles.length > limit;
+    candles = candles.slice(-limit);
+
+    let hasMore = hasMoreInBatch;
+    if (!hasMore && candles.length > 0) {
+      hasMore = await this.hasOlderStockPrices(
+        listing.id,
+        candles[0].time,
+      );
+    } else if (!hasMore && dailyRows.length >= dailyFetchCap) {
+      const oldestDaily = dailyRows[dailyRows.length - 1];
+      hasMore = await this.hasOlderStockPrices(
+        listing.id,
+        this.toUnixTime(oldestDaily.date),
+      );
+    }
+
+    const intervalLabel = interval === '1w' ? '1W' : '1MO';
+    return this.buildCandlesPayload(
+      listing.symbol,
+      intervalLabel,
+      candles,
+      hasMore,
+    );
+  }
+
+  /** `before` = unix time candle terkiri; kirim lagi sebagai query untuk load lebih lama. */
+  private buildCandlesPayload(
+    symbol: string,
+    interval: string,
+    candles: Array<{
+      time: number;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      volume: number;
+    }>,
+    hasMore: boolean,
+  ) {
+    return {
+      ticker: symbol.toUpperCase(),
+      interval,
+      candles,
+      hasMore,
+      before: candles.length > 0 ? candles[0].time : null,
+    };
+  }
+
+  private async hasOlderStockPrices(
+    listingId: string,
+    beforeUnixSeconds: number,
+  ): Promise<boolean> {
+    const older = await this.prisma.stockPrice.findFirst({
+      where: {
+        listingId,
         date: {
-          gte: fromDate,
+          lt: new Date(beforeUnixSeconds * 1000),
         },
       },
-      orderBy: {
-        date: 'asc',
-      },
-      take: query.limit,
+      select: { id: true },
     });
 
-    const sampledPrices = this.sampleByInterval(rawPrices, query.interval ?? '1mo');
-    const series = sampledPrices.map((point, index) => {
-      const slice = sampledPrices.slice(0, index + 1);
-      return {
-        date: point.date,
-        close: point.close.toString(),
-        volume: point.volume.toString(),
-        ma50: this.calculateSma(slice, 50)?.toString() ?? null,
-        ma200: this.calculateSma(slice, 200)?.toString() ?? null,
-        rsi14: this.calculateRsi(slice, 14)?.toString() ?? null,
-      };
-    });
+    return older !== null;
+  }
 
+  private aggregateDailyToCandles(
+    dailyAsc: Array<{
+      date: Date;
+      open: Prisma.Decimal;
+      high: Prisma.Decimal;
+      low: Prisma.Decimal;
+      close: Prisma.Decimal;
+      volume: bigint;
+    }>,
+    interval: '1w' | '1mo',
+  ) {
+    const buckets = new Map<
+      string,
+      Array<{
+        date: Date;
+        open: Prisma.Decimal;
+        high: Prisma.Decimal;
+        low: Prisma.Decimal;
+        close: Prisma.Decimal;
+        volume: bigint;
+      }>
+    >();
+
+    for (const row of dailyAsc) {
+      const key =
+        interval === '1w'
+          ? `${row.date.getUTCFullYear()}-W${this.getWeekOfYear(row.date)}`
+          : `${row.date.getUTCFullYear()}-${row.date.getUTCMonth() + 1}`;
+
+      const bucket = buckets.get(key) ?? [];
+      bucket.push(row);
+      buckets.set(key, bucket);
+    }
+
+    return Array.from(buckets.values())
+      .sort((a, b) => a[0].date.getTime() - b[0].date.getTime())
+      .map((days) => {
+        const first = days[0];
+        const last = days[days.length - 1];
+        let high = first.high;
+        let low = first.low;
+        let volume = 0n;
+
+        for (const day of days) {
+          if (day.high.gt(high)) {
+            high = day.high;
+          }
+          if (day.low.lt(low)) {
+            low = day.low;
+          }
+          volume += day.volume;
+        }
+
+        return {
+          time: this.toUnixTime(last.date),
+          open: this.decimalToNumber(first.open),
+          high: this.decimalToNumber(high),
+          low: this.decimalToNumber(low),
+          close: this.decimalToNumber(last.close),
+          volume: Number(volume),
+        };
+      });
+  }
+
+  private mapStockPriceToCandle(row: {
+    date: Date;
+    open: Prisma.Decimal;
+    high: Prisma.Decimal;
+    low: Prisma.Decimal;
+    close: Prisma.Decimal;
+    volume: bigint;
+  }) {
     return {
-      listing,
-      meta: {
-        range: query.range ?? '1y',
-        interval: query.interval ?? '1mo',
-        points: series.length,
-      },
-      series,
+      time: this.toUnixTime(row.date),
+      open: this.decimalToNumber(row.open),
+      high: this.decimalToNumber(row.high),
+      low: this.decimalToNumber(row.low),
+      close: this.decimalToNumber(row.close),
+      volume: Number(row.volume),
     };
+  }
+
+  private toUnixTime(date: Date): number {
+    return Math.floor(
+      Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate(),
+      ) / 1000,
+    );
+  }
+
+  private decimalToNumber(value: Prisma.Decimal): number {
+    return Number(value.toString());
   }
 
   async findWyckoffBySymbol(

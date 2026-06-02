@@ -11,6 +11,7 @@ import { FinancialStatementSyncService } from '../../jobs/stock-sync/sync/financ
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
 import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
 import { SyncFinancialStatementsQueryDto } from './dto/sync-financial-statements-query.dto';
+import { CandlesQueryDto } from './dto/candles-query.dto';
 import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 import { StocksService } from './stocks.service';
 
@@ -88,23 +89,23 @@ export class StocksController {
     return overview;
   }
 
-  @Get('stocks/:symbol/technical-series')
-  async getStockTechnicalSeries(
+  @Get('stocks/:symbol/candles')
+  async getStockCandles(
     @Param('symbol') symbol: string,
-    @Query() query: TechnicalSeriesQueryDto,
+    @Query() query: CandlesQueryDto,
   ) {
-    const series = await this.stocksService.findTechnicalSeriesBySymbol(
+    const candles = await this.stocksService.findCandlesBySymbol(
       symbol,
       query,
     );
 
-    if (!series) {
+    if (!candles) {
       throw new NotFoundException(
         `Stock with symbol ${symbol} not found`,
       );
     }
 
-    return series;
+    return candles;
   }
 
   @Get('stocks/:symbol/wyckoff')
