@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
@@ -9,25 +11,42 @@ import { CorporateActionsModule } from './modules/corporate-actions/corporate-ac
 import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
 
+function isEnabled(value: string | undefined, defaultValue = true): boolean {
+  if (value == null) {
+    return defaultValue;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized !== 'false' && normalized !== '0' && normalized !== 'no';
+}
+
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-    }),
+  imports: (() => {
+    const enablePubEx = isEnabled(process.env.ENABLE_PUBEX, true);
 
-    PrismaModule,
-    BullModule.forRoot({
-      connection: {
-        host: process.env.REDIS_HOST ?? '127.0.0.1',
-        port: Number.parseInt(process.env.REDIS_PORT ?? '6379', 10),
-        password: process.env.REDIS_PASSWORD || undefined,
-      },
-    }),
+    return [
+      ConfigModule.forRoot({
+        isGlobal: true,
+      }),
 
-    AuthModule,
-    CorporateActionsModule,
-    PubExModule,
-    StocksModule,
-  ],
+      PrismaModule,
+      ...(enablePubEx
+        ? [
+            BullModule.forRoot({
+              connection: {
+                host: process.env.REDIS_HOST ?? '127.0.0.1',
+                port: Number.parseInt(process.env.REDIS_PORT ?? '6379', 10),
+                password: process.env.REDIS_PASSWORD || undefined,
+              },
+            }),
+            PubExModule,
+          ]
+        : []),
+
+      AuthModule,
+      CorporateActionsModule,
+      StocksModule,
+    ];
+  })(),
 })
 export class AppModule {}

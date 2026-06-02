@@ -5,13 +5,21 @@ import cookieParser from 'cookie-parser';
 
 import { AppModule } from './app.module';
 
+function parseCorsOrigins(value?: string): string[] {
+  return (value ?? 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const corsOrigins = parseCorsOrigins(process.env.FRONTEND_ORIGIN);
 
   app.setGlobalPrefix('api/v1');
 
   app.enableCors({
-    origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:3000',
+    origin: corsOrigins,
     credentials: true,
   });
 
