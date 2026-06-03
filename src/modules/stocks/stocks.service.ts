@@ -500,6 +500,7 @@ export class StocksService {
       select: {
         id: true,
         symbol: true,
+        companyId: true,
       },
     });
 
@@ -520,7 +521,7 @@ export class StocksService {
   }
 
   private async buildDailyCandlesResponse(
-    listing: { id: string; symbol: string },
+    listing: { id: string; symbol: string; companyId: string },
     limit: number,
     before?: number,
   ) {
@@ -546,16 +547,20 @@ export class StocksService {
     });
 
     const hasMore = rows.length > limit;
-    const candles = rows
-      .slice(0, limit)
-      .reverse()
-      .map((row) => this.mapStockPriceToCandle(row));
+    const adjustedRows =
+      await this.adjustPriceRowsForCorporateActions(
+        listing,
+        rows.slice(0, limit).reverse(),
+      );
+    const candles = adjustedRows.map((row) =>
+      this.mapAdjustedPriceRowToCandle(row),
+    );
 
     return this.buildCandlesPayload(listing.symbol, '1D', candles, hasMore);
   }
 
   private async buildAggregatedCandlesResponse(
-    listing: { id: string; symbol: string },
+    listing: { id: string; symbol: string; companyId: string },
     interval: '1w' | '1mo',
     limit: number,
     before?: number,
@@ -581,9 +586,14 @@ export class StocksService {
         volume: true,
       },
     });
+    const adjustedDailyRows =
+      await this.adjustPriceRowsForCorporateActions(
+        listing,
+        dailyRows.slice().reverse(),
+      );
 
     let candles = this.aggregateDailyToCandles(
-      dailyRows.slice().reverse(),
+      adjustedDailyRows,
       interval,
     );
 
@@ -657,13 +667,239 @@ export class StocksService {
     return older !== null;
   }
 
-  private aggregateDailyToCandles(
-    dailyAsc: Array<{
+  private async adjustPriceRowsForCorporateActions(
+    listing: { id: string; companyId: string },
+    rowsAsc: Array<{
       date: Date;
       open: Prisma.Decimal;
       high: Prisma.Decimal;
       low: Prisma.Decimal;
       close: Prisma.Decimal;
+      volume: bigint;
+    }>,
+  ) {
+    if (rowsAsc.length === 0) {
+      return [];
+    }
+
+    const splitAdjustments =
+      await this.getSplitAdjustmentsForListing(
+        listing.id,
+        listing.companyId,
+      );
+    if (splitAdjustments.length === 0) {
+      return rowsAsc.map((row) => this.normalizeAdjustedPriceRow(row));
+    }
+
+    return rowsAsc.map((row) => {
+      const normalized = this.normalizeAdjustedPriceRow(row);
+      let priceDivisor = 1;
+      let volumeMultiplier = 1;
+
+      for (const adjustment of splitAdjustments) {
+        if (normalized.date.getTime() < adjustment.effectiveDate.getTime()) {
+          priceDivisor *= adjustment.factor;
+          volumeMultiplier *= adjustment.factor;
+        }
+      }
+
+      return {
+        ...normalized,
+        open: normalized.open / priceDivisor,
+        high: normalized.high / priceDivisor,
+        low: normalized.low / priceDivisor,
+        close: normalized.close / priceDivisor,
+        volume: BigInt(
+          Math.max(
+            0,
+            Math.round(Number(normalized.volume) * volumeMultiplier),
+          ),
+        ),
+      };
+    });
+  }
+
+  private async getSplitAdjustmentsForListing(
+    listingId: string,
+    companyId: string,
+  ) {
+    const actions = await this.prisma.corporateAction.findMany({
+      where: {
+        companyId,
+        actionType: {
+          in: ['STOCK_SPLIT', 'REVERSE_SPLIT'],
+        },
+      },
+      select: {
+        actionType: true,
+        effectiveDate: true,
+        announcementDate: true,
+        splitRatio: true,
+      },
+      orderBy: {
+        effectiveDate: 'asc',
+      },
+    });
+
+    const adjustments: Array<{ effectiveDate: Date; factor: number }> = [];
+    for (const action of actions) {
+      if (
+        action.actionType !== 'STOCK_SPLIT' &&
+        action.actionType !== 'REVERSE_SPLIT'
+      ) {
+        continue;
+      }
+
+      const effectiveDate = action.effectiveDate ?? action.announcementDate;
+      if (!effectiveDate) {
+        continue;
+      }
+
+      const factor =
+        this.parseCorporateActionFactor(action.actionType, action.splitRatio) ??
+        await this.inferCorporateActionFactor(
+          listingId,
+          action.actionType,
+          effectiveDate,
+        );
+
+      if (!factor || factor === 1) {
+        continue;
+      }
+
+      adjustments.push({
+        effectiveDate,
+        factor,
+      });
+    }
+
+    return adjustments;
+  }
+
+  private parseCorporateActionFactor(
+    actionType: 'STOCK_SPLIT' | 'REVERSE_SPLIT',
+    splitRatio: Prisma.Decimal | null,
+  ) {
+    if (!splitRatio) {
+      return null;
+    }
+
+    const ratio = Number(splitRatio.toString());
+    if (!Number.isFinite(ratio) || ratio <= 0 || ratio === 1) {
+      return null;
+    }
+
+    return actionType === 'REVERSE_SPLIT'
+      ? 1 / ratio
+      : ratio;
+  }
+
+  private async inferCorporateActionFactor(
+    listingId: string,
+    actionType: 'STOCK_SPLIT' | 'REVERSE_SPLIT',
+    effectiveDate: Date,
+  ) {
+    const [previousRow, nextRow] = await Promise.all([
+      this.prisma.stockPrice.findFirst({
+        where: {
+          listingId,
+          date: {
+            lt: effectiveDate,
+          },
+        },
+        orderBy: {
+          date: 'desc',
+        },
+        select: {
+          close: true,
+        },
+      }),
+      this.prisma.stockPrice.findFirst({
+        where: {
+          listingId,
+          date: {
+            gte: effectiveDate,
+          },
+        },
+        orderBy: {
+          date: 'asc',
+        },
+        select: {
+          close: true,
+        },
+      }),
+    ]);
+
+    if (!previousRow || !nextRow) {
+      return null;
+    }
+
+    const previousClose = Number(previousRow.close.toString());
+    const nextClose = Number(nextRow.close.toString());
+    if (
+      !Number.isFinite(previousClose) ||
+      !Number.isFinite(nextClose) ||
+      previousClose <= 0 ||
+      nextClose <= 0
+    ) {
+      return null;
+    }
+
+    const rawFactor =
+      actionType === 'REVERSE_SPLIT'
+        ? nextClose / previousClose
+        : previousClose / nextClose;
+    const roundedFactor = Math.round(rawFactor);
+
+    if (
+      roundedFactor < 2 ||
+      Math.abs(rawFactor - roundedFactor) / roundedFactor > 0.2
+    ) {
+      return null;
+    }
+
+    return actionType === 'REVERSE_SPLIT'
+      ? 1 / roundedFactor
+      : roundedFactor;
+  }
+
+  private normalizeAdjustedPriceRow(row: {
+    date: Date;
+    open: Prisma.Decimal;
+    high: Prisma.Decimal;
+    low: Prisma.Decimal;
+    close: Prisma.Decimal;
+    volume: bigint;
+  }) {
+    const close = this.decimalToNumber(row.close);
+    const openRaw = this.decimalToNumber(row.open);
+    const highRaw = this.decimalToNumber(row.high);
+    const lowRaw = this.decimalToNumber(row.low);
+
+    const open = openRaw > 0 ? openRaw : close;
+    const high = Math.max(highRaw > 0 ? highRaw : close, open, close);
+    const lowCandidates = [lowRaw, open, close].filter((value) => value > 0);
+    const low = lowCandidates.length > 0
+      ? Math.min(...lowCandidates)
+      : close;
+
+    return {
+      date: row.date,
+      open,
+      high,
+      low,
+      close,
+      volume: row.volume,
+    };
+  }
+
+  private aggregateDailyToCandles(
+    dailyAsc: Array<{
+      date: Date;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
       volume: bigint;
     }>,
     interval: '1w' | '1mo',
@@ -672,10 +908,10 @@ export class StocksService {
       string,
       Array<{
         date: Date;
-        open: Prisma.Decimal;
-        high: Prisma.Decimal;
-        low: Prisma.Decimal;
-        close: Prisma.Decimal;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
         volume: bigint;
       }>
     >();
@@ -701,10 +937,10 @@ export class StocksService {
         let volume = 0n;
 
         for (const day of days) {
-          if (day.high.gt(high)) {
+          if (day.high > high) {
             high = day.high;
           }
-          if (day.low.lt(low)) {
+          if (day.low < low) {
             low = day.low;
           }
           volume += day.volume;
@@ -712,10 +948,10 @@ export class StocksService {
 
         return {
           time: this.toUnixTime(last.date),
-          open: this.decimalToNumber(first.open),
-          high: this.decimalToNumber(high),
-          low: this.decimalToNumber(low),
-          close: this.decimalToNumber(last.close),
+          open: first.open,
+          high,
+          low,
+          close: last.close,
           volume: Number(volume),
         };
       });
@@ -735,6 +971,24 @@ export class StocksService {
       high: this.decimalToNumber(row.high),
       low: this.decimalToNumber(row.low),
       close: this.decimalToNumber(row.close),
+      volume: Number(row.volume),
+    };
+  }
+
+  private mapAdjustedPriceRowToCandle(row: {
+    date: Date;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: bigint;
+  }) {
+    return {
+      time: this.toUnixTime(row.date),
+      open: row.open,
+      high: row.high,
+      low: row.low,
+      close: row.close,
       volume: Number(row.volume),
     };
   }
