@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 
 import { FinancialStatementSyncService } from '../../jobs/stock-sync/sync/financial-statement-sync.service';
+import { StockPriceQueryDto } from './dto/stock-price-query.dto';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
 import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
 import { SyncFinancialStatementsQueryDto } from './dto/sync-financial-statements-query.dto';
@@ -32,6 +33,24 @@ export class StocksController {
   @Get('sectors')
   async getSectors() {
     return this.stocksService.findAllSectors();
+  }
+
+  @Get('stock-price')
+  async getStockPriceByListingIdAndDate(
+    @Query() query: StockPriceQueryDto,
+  ) {
+    const stockPrice = await this.stocksService.findStockPriceByListingIdAndDate(
+      query.listingId,
+      query.date,
+    );
+
+    if (!stockPrice) {
+      throw new NotFoundException(
+        `Stock price for listing ${query.listingId} on ${query.date} not found`,
+      );
+    }
+
+    return stockPrice;
   }
 
   @Get('stocks/:symbol')

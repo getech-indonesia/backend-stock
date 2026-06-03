@@ -222,6 +222,55 @@ export class StocksService {
     return this.mapListingWithMetrics(listing);
   }
 
+  async findStockPriceByListingIdAndDate(
+    listingId: string,
+    date: string,
+  ) {
+    const tradingDate = this.parseTradingDate(date);
+
+    if (!tradingDate) {
+      return null;
+    }
+
+    const stockPrice = await this.prisma.stockPrice.findUnique({
+      where: {
+        listingId_date: {
+          listingId,
+          date: tradingDate,
+        },
+      },
+      select: {
+        listingId: true,
+        date: true,
+        open: true,
+        high: true,
+        low: true,
+        close: true,
+        adjClose: true,
+        volume: true,
+        value: true,
+        createdAt: true,
+      },
+    });
+
+    if (!stockPrice) {
+      return null;
+    }
+
+    return {
+      listingId: stockPrice.listingId,
+      date: stockPrice.date.toISOString(),
+      open: stockPrice.open.toString(),
+      high: stockPrice.high.toString(),
+      low: stockPrice.low.toString(),
+      close: stockPrice.close.toString(),
+      adjClose: stockPrice.adjClose?.toString() ?? null,
+      volume: stockPrice.volume.toString(),
+      value: stockPrice.value?.toString() ?? null,
+      createdAt: stockPrice.createdAt.toISOString(),
+    };
+  }
+
   async findFinancialStatementsBySymbol(symbol: string) {
     const listing = await this.prisma.listing.findFirst({
       where: {
@@ -1005,6 +1054,17 @@ export class StocksService {
 
   private decimalToNumber(value: Prisma.Decimal): number {
     return Number(value.toString());
+  }
+
+  private parseTradingDate(value: string): Date | null {
+    const normalized = value.slice(0, 10);
+    const parsed = new Date(`${normalized}T00:00:00.000Z`);
+
+    if (Number.isNaN(parsed.getTime())) {
+      return null;
+    }
+
+    return parsed;
   }
 
   async findWyckoffBySymbol(
