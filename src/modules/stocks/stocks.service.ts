@@ -1125,9 +1125,15 @@ export class StocksService {
       return null;
     }
 
+    const marketCap = await this.calculateMarketCapFromShareholdings(
+      overview.company.id,
+      overview.listing.id,
+    );
+
     return {
       listing: overview.listing,
       company: overview.company,
+      marketCap,
       meta: overview.meta,
       overview: {
         snapshot: overview.snapshot,
@@ -1756,6 +1762,45 @@ export class StocksService {
     }
 
     return sharesDataMarketCap ?? valuationMarketCap ?? ajaibMarketCap;
+  }
+
+  private async calculateMarketCapFromShareholdings(
+    companyId: string,
+    listingId: string,
+  ): Promise<string | null> {
+    const [latestSnapshot, latestPrice] = await Promise.all([
+      this.prisma.shareholding.findFirst({
+        where: { companyId },
+        orderBy: { date: 'desc' },
+        select: { date: true },
+      }),
+      this.prisma.stockPrice.findFirst({
+        where: { listingId },
+        orderBy: { date: 'desc' },
+        select: { close: true },
+      }),
+    ]);
+
+    if (!latestSnapshot || !latestPrice) {
+      return null;
+    }
+
+    const { _sum } = await this.prisma.shareholding.aggregate({
+      where: {
+        companyId,
+        date: latestSnapshot.date,
+      },
+      _sum: { sharesHeld: true },
+    });
+
+    const totalShares = _sum.sharesHeld;
+    if (!totalShares || totalShares === 0n) {
+      return null;
+    }
+
+    return new Prisma.Decimal(totalShares.toString())
+      .mul(latestPrice.close)
+      .toString();
   }
 
   private calculatePeTtm(
