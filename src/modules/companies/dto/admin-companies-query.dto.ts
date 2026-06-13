@@ -18,5 +18,5 @@ export class AdminCompaniesQueryDto {
   @IsOptional()
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  q?: string;
+  keyword?: string;
 }

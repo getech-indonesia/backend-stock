@@ -10,9 +10,4 @@ export class CompaniesController {
   async getAllCompanies(@Query() query: AdminCompaniesQueryDto) {
     return this.companiesService.findAllAdmin(query);
   }
-
-  @Get('search')
-  async searchCompanies(@Query() query: AdminCompaniesQueryDto) {
-    return this.companiesService.searchAdminCompanies(query);
-  }
 }

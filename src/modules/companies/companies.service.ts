@@ -6,23 +6,13 @@ import { AdminCompaniesQueryDto } from './dto/admin-companies-query.dto';
 
 @Injectable()
 export class CompaniesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findAllAdmin(query: AdminCompaniesQueryDto) {
-    return this.findCompanies(query);
-  }
-
-  async searchAdminCompanies(query: AdminCompaniesQueryDto) {
-    return this.findCompanies(query, query.q?.trim());
-  }
-
-  private async findCompanies(
-    query: AdminCompaniesQueryDto,
-    keyword?: string,
-  ) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
+    const keyword = query.keyword?.trim();
 
     const where: Prisma.CompanyWhereInput | undefined = keyword
       ? {
