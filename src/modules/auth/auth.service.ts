@@ -7,6 +7,7 @@ import { StringValue } from 'ms';
 import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -49,6 +50,7 @@ export class AuthService {
     const tokens = await this.generateTokens(
       user.id,
       user.email,
+      user.role,
     );
 
     return {
@@ -92,6 +94,7 @@ export class AuthService {
       await this.generateTokens(
         user.id,
         user.email,
+        user.role,
       );
 
     return {
@@ -108,10 +111,12 @@ export class AuthService {
   async generateTokens(
     userId: string,
     email: string,
+    role: JwtPayload['role'],
   ) {
     const payload = {
       sub: userId,
       email,
+      role,
     };
 
     const accessToken =

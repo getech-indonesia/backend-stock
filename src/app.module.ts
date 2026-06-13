@@ -7,7 +7,9 @@ import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module';
 
 import { AuthModule } from './modules/auth/auth.module';
+import { CompaniesModule } from './modules/companies/companies.module';
 import { CorporateActionsModule } from './modules/corporate-actions/corporate-actions.module';
+import { IncomeStatementsModule } from './modules/income-statements/income-statements.module';
 import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
 
@@ -44,7 +46,9 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
         : []),
 
       AuthModule,
+      CompaniesModule,
       CorporateActionsModule,
+      IncomeStatementsModule,
       StocksModule,
     ];
   })(),
