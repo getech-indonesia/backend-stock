@@ -18,14 +18,19 @@ export class IncomeStatementsController {
   }
 
   @Post()
-  async createIncomeStatement(@Body() body: Record<string, unknown>) {
+  async createIncomeStatement(@Body() body: unknown) {
     return this.incomeStatementsService.createAdmin(body);
+  }
+
+  @Patch('batch')
+  async batchUpdateIncomeStatements(@Body() body: unknown) {
+    return this.incomeStatementsService.batchUpdateAdmin(body);
   }
 
   @Patch(':id')
   async updateIncomeStatement(
     @Param('id') id: string,
-    @Body() body: Record<string, unknown>,
+    @Body() body: unknown,
   ) {
     return this.incomeStatementsService.updateAdmin(id, body);
   }

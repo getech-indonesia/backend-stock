@@ -32,6 +32,16 @@ export class IncomeStatementsService {
                 mode: 'insensitive',
               },
             },
+            {
+              listings: {
+                some: {
+                  symbol: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
           ],
         },
       });
@@ -107,30 +117,57 @@ export class IncomeStatementsService {
     return this.mapIncomeStatement(incomeStatement);
   }
 
-  async createAdmin(body: Record<string, unknown>) {
-    const data = this.buildCreateData(body);
-    const incomeStatement = await this.prisma.incomeStatement.create({
-      data,
-      include: {
-        company: {
-          select: {
-            id: true,
-            displayName: true,
-            legalName: true,
-            logoUrl: true,
-          },
-        },
-      },
-    });
+  async createAdmin(body: unknown) {
+    const payloads = this.normalizeArrayPayloads(body);
+    const created = await Promise.all(
+      payloads.map(async (payload) => {
+        const data = this.buildCreateData(payload);
+        const incomeStatement = await this.upsertIncomeStatement({
+          data,
+        });
 
+        return this.mapIncomeStatement(incomeStatement);
+      }),
+    );
+
+    return payloads.length === 1 ? created[0] : created;
+  }
+
+  async updateAdmin(id: string, body: unknown) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Request body must be a single object');
+    }
+
+    const data = this.buildUpdateData(body as Record<string, unknown>);
+    const incomeStatement = await this.updateIncomeStatementById(id, data);
     return this.mapIncomeStatement(incomeStatement);
   }
 
-  async updateAdmin(id: string, body: Record<string, unknown>) {
+  async batchUpdateAdmin(body: unknown) {
+    const payloads = this.normalizeArrayPayloads(body);
+
+    const updated = await Promise.all(
+      payloads.map(async (payload) => {
+        const targetId = await this.resolveIncomeStatementId(payload);
+        const data = this.buildUpdateData(payload);
+        const incomeStatement = await this.updateIncomeStatementById(
+          targetId,
+          data,
+        );
+        return this.mapIncomeStatement(incomeStatement);
+      }),
+    );
+
+    return updated;
+  }
+
+  private async updateIncomeStatementById(
+    id: string,
+    data: Prisma.IncomeStatementUncheckedUpdateInput,
+  ) {
     await this.ensureIncomeStatementExists(id);
 
-    const data = this.buildUpdateData(body);
-    const incomeStatement = await this.prisma.incomeStatement.update({
+    return this.prisma.incomeStatement.update({
       where: { id },
       data,
       include: {
@@ -144,19 +181,62 @@ export class IncomeStatementsService {
         },
       },
     });
-
-    return this.mapIncomeStatement(incomeStatement);
   }
 
-  private async ensureIncomeStatementExists(id: string) {
-    const exists = await this.prisma.incomeStatement.findUnique({
-      where: { id },
+  private async upsertIncomeStatement(input: {
+    data: Prisma.IncomeStatementUncheckedCreateInput;
+  }) {
+    const existing = await this.prisma.incomeStatement.findFirst({
+      where: {
+        companyId: input.data.companyId,
+        period: input.data.period,
+        fiscalYear: input.data.fiscalYear,
+        fiscalQuarter: input.data.fiscalQuarter ?? null,
+      },
       select: { id: true },
     });
 
-    if (!exists) {
-      throw new NotFoundException(`Income statement ${id} not found`);
+    if (existing) {
+      return this.prisma.incomeStatement.update({
+        where: { id: existing.id },
+        data: input.data,
+        include: {
+          company: {
+            select: {
+              id: true,
+              displayName: true,
+              legalName: true,
+              logoUrl: true,
+            },
+          },
+        },
+      });
     }
+
+    return this.prisma.incomeStatement.create({
+      data: input.data,
+      include: {
+        company: {
+          select: {
+            id: true,
+            displayName: true,
+            legalName: true,
+            logoUrl: true,
+          },
+        },
+      },
+    });
+  }
+
+  private ensureIncomeStatementExists(id: string) {
+    return this.prisma.incomeStatement.findUnique({
+      where: { id },
+      select: { id: true },
+    }).then((exists) => {
+      if (!exists) {
+        throw new NotFoundException(`Income statement ${id} not found`);
+      }
+    });
   }
 
   private buildCreateData(body: Record<string, unknown>): Prisma.IncomeStatementUncheckedCreateInput {
@@ -181,6 +261,72 @@ export class IncomeStatementsService {
 
   private buildUpdateData(body: Record<string, unknown>): Prisma.IncomeStatementUncheckedUpdateInput {
     return this.buildIncomeStatementData(body, false) as Prisma.IncomeStatementUncheckedUpdateInput;
+  }
+
+  private normalizeArrayPayloads(body: unknown): Record<string, unknown>[] {
+    if (Array.isArray(body)) {
+      if (body.length === 0) {
+        throw new BadRequestException('Request body array cannot be empty');
+      }
+
+      return body.map((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          throw new BadRequestException(`Item at index ${index} must be an object`);
+        }
+
+        return item as Record<string, unknown>;
+      });
+    }
+
+    throw new BadRequestException('Request body must be an array of objects');
+  }
+
+  private async resolveIncomeStatementId(body: Record<string, unknown>) {
+    const candidate = body.id;
+
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+
+    const companyId = body.companyId;
+    const period = body.period;
+    const fiscalYear = body.fiscalYear;
+    const fiscalQuarter = body.fiscalQuarter ?? null;
+
+    if (
+      typeof companyId !== 'string' ||
+      !companyId.trim() ||
+      typeof period !== 'string' ||
+      !period.trim() ||
+      fiscalYear === undefined ||
+      fiscalYear === null ||
+      fiscalYear === ''
+    ) {
+      throw new BadRequestException(
+        'Batch update items must include id or companyId, period, and fiscalYear',
+      );
+    }
+
+    const existing = await this.prisma.incomeStatement.findFirst({
+      where: {
+        companyId: companyId.trim(),
+        period: period as PeriodType,
+        fiscalYear: Number(fiscalYear),
+        fiscalQuarter:
+          fiscalQuarter === '' || fiscalQuarter === undefined
+            ? null
+            : Number(fiscalQuarter),
+      },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException(
+        `Income statement not found for companyId=${companyId}, period=${period}, fiscalYear=${fiscalYear}, fiscalQuarter=${fiscalQuarter ?? 'null'}`,
+      );
+    }
+
+    return existing.id;
   }
 
   private buildIncomeStatementData(
