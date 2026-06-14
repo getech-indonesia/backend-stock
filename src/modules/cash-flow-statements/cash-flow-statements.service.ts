@@ -148,10 +148,10 @@ export class CashFlowStatementsService {
 
     const upserted = await Promise.all(
       payloads.map(async (payload) => {
-        const data = this.buildCreateData(payload);
-        const cashFlowStatement = await this.upsertCashFlowStatementByCompanyPeriodYear({
-          data,
-        });
+        const normalizedPayload = this.normalizeUpsertPayload(payload);
+        const cashFlowStatement = await this.upsertCashFlowStatementByCompanyPeriodYear(
+          normalizedPayload,
+        );
 
         return this.mapCashFlowStatement(cashFlowStatement);
       }),
@@ -252,22 +252,39 @@ export class CashFlowStatementsService {
     });
   }
 
-  private async upsertCashFlowStatementByCompanyPeriodYear(input: {
-    data: Prisma.CashFlowStatementUncheckedCreateInput;
-  }) {
+  private async upsertCashFlowStatementByCompanyPeriodYear(body: Record<string, unknown>) {
+    const companyId = body.companyId;
+    const period = body.period;
+    const fiscalYear = body.fiscalYear;
+
+    if (
+      typeof companyId !== 'string' ||
+      !companyId.trim() ||
+      typeof period !== 'string' ||
+      !period.trim() ||
+      fiscalYear === undefined ||
+      fiscalYear === null ||
+      fiscalYear === ''
+    ) {
+      throw new BadRequestException(
+        'Upsert items must include companyId, period, and fiscalYear',
+      );
+    }
+
     const existing = await this.prisma.cashFlowStatement.findFirst({
       where: {
-        companyId: input.data.companyId,
-        period: input.data.period,
-        fiscalYear: input.data.fiscalYear,
+        companyId: companyId.trim(),
+        period: period as PeriodType,
+        fiscalYear: Number(fiscalYear),
       },
       select: { id: true },
     });
 
     if (existing) {
+      const data = this.buildUpdateData(body);
       return this.prisma.cashFlowStatement.update({
         where: { id: existing.id },
-        data: input.data,
+        data,
         include: {
           company: {
             select: {
@@ -281,8 +298,9 @@ export class CashFlowStatementsService {
       });
     }
 
+    const data = this.buildCreateData(body);
     return this.prisma.cashFlowStatement.create({
-      data: input.data,
+      data,
       include: {
         company: {
           select: {
@@ -294,6 +312,27 @@ export class CashFlowStatementsService {
         },
       },
     });
+  }
+
+  private normalizeUpsertPayload(body: Record<string, unknown>) {
+    const normalized = { ...body };
+    const period = normalized.period;
+
+    if (typeof period === 'string') {
+      const canonicalPeriod = period.trim().toUpperCase();
+      if (
+        canonicalPeriod === 'ANNUAL' ||
+        canonicalPeriod === 'Q1' ||
+        canonicalPeriod === 'Q2' ||
+        canonicalPeriod === 'Q3' ||
+        canonicalPeriod === 'Q4' ||
+        canonicalPeriod === 'TTM'
+      ) {
+        normalized.period = canonicalPeriod;
+      }
+    }
+
+    return normalized;
   }
 
   private ensureCashFlowStatementExists(id: string) {
@@ -587,7 +626,7 @@ export class CashFlowStatementsService {
     period: PeriodType;
     fiscalYear: number;
     fiscalQuarter: number | null;
-    periodEndDate: Date;
+    periodEndDate: Date | null;
     currency: string;
     auditStatus: AuditStatus;
     netIncomeStart: Prisma.Decimal | null;
@@ -631,7 +670,7 @@ export class CashFlowStatementsService {
       period: item.period,
       fiscalYear: item.fiscalYear,
       fiscalQuarter: item.fiscalQuarter,
-      periodEndDate: item.periodEndDate.toISOString(),
+      periodEndDate: item.periodEndDate?.toISOString() ?? null,
       currency: item.currency,
       auditStatus: item.auditStatus,
       netIncomeStart: item.netIncomeStart?.toString() ?? null,

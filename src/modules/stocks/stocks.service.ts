@@ -12,7 +12,7 @@ type QuarterlyIncomeStatementLike = {
   period: PeriodType;
   fiscalYear: number;
   fiscalQuarter: number | null;
-  periodEndDate: Date;
+  periodEndDate: Date | null;
   revenue: Prisma.Decimal | null;
   cogs: Prisma.Decimal | null;
   grossProfit: Prisma.Decimal | null;
@@ -28,7 +28,7 @@ type AnnualIncomeStatementLike = {
   period: PeriodType;
   fiscalYear: number;
   fiscalQuarter: number | null;
-  periodEndDate: Date;
+  periodEndDate: Date | null;
   revenue: Prisma.Decimal | null;
   cogs: Prisma.Decimal | null;
   grossProfit: Prisma.Decimal | null;

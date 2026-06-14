@@ -148,10 +148,10 @@ export class BalanceSheetsService {
 
     const upserted = await Promise.all(
       payloads.map(async (payload) => {
-        const data = this.buildCreateData(payload);
-        const balanceSheet = await this.upsertBalanceSheetByCompanyPeriodYear({
-          data,
-        });
+        const normalizedPayload = this.normalizeUpsertPayload(payload);
+        const balanceSheet = await this.upsertBalanceSheetByCompanyPeriodYear(
+          normalizedPayload,
+        );
 
         return this.mapBalanceSheet(balanceSheet);
       }),
@@ -252,22 +252,39 @@ export class BalanceSheetsService {
     });
   }
 
-  private async upsertBalanceSheetByCompanyPeriodYear(input: {
-    data: Prisma.BalanceSheetUncheckedCreateInput;
-  }) {
+  private async upsertBalanceSheetByCompanyPeriodYear(body: Record<string, unknown>) {
+    const companyId = body.companyId;
+    const period = body.period;
+    const fiscalYear = body.fiscalYear;
+
+    if (
+      typeof companyId !== 'string' ||
+      !companyId.trim() ||
+      typeof period !== 'string' ||
+      !period.trim() ||
+      fiscalYear === undefined ||
+      fiscalYear === null ||
+      fiscalYear === ''
+    ) {
+      throw new BadRequestException(
+        'Upsert items must include companyId, period, and fiscalYear',
+      );
+    }
+
     const existing = await this.prisma.balanceSheet.findFirst({
       where: {
-        companyId: input.data.companyId,
-        period: input.data.period,
-        fiscalYear: input.data.fiscalYear,
+        companyId: companyId.trim(),
+        period: period as PeriodType,
+        fiscalYear: Number(fiscalYear),
       },
       select: { id: true },
     });
 
     if (existing) {
+      const data = this.buildUpdateData(body);
       return this.prisma.balanceSheet.update({
         where: { id: existing.id },
-        data: input.data,
+        data,
         include: {
           company: {
             select: {
@@ -281,8 +298,9 @@ export class BalanceSheetsService {
       });
     }
 
+    const data = this.buildCreateData(body);
     return this.prisma.balanceSheet.create({
-      data: input.data,
+      data,
       include: {
         company: {
           select: {
@@ -294,6 +312,27 @@ export class BalanceSheetsService {
         },
       },
     });
+  }
+
+  private normalizeUpsertPayload(body: Record<string, unknown>) {
+    const normalized = { ...body };
+    const period = normalized.period;
+
+    if (typeof period === 'string') {
+      const canonicalPeriod = period.trim().toUpperCase();
+      if (
+        canonicalPeriod === 'ANNUAL' ||
+        canonicalPeriod === 'Q1' ||
+        canonicalPeriod === 'Q2' ||
+        canonicalPeriod === 'Q3' ||
+        canonicalPeriod === 'Q4' ||
+        canonicalPeriod === 'TTM'
+      ) {
+        normalized.period = canonicalPeriod;
+      }
+    }
+
+    return normalized;
   }
 
   private ensureBalanceSheetExists(id: string) {
@@ -595,7 +634,7 @@ export class BalanceSheetsService {
     period: PeriodType;
     fiscalYear: number;
     fiscalQuarter: number | null;
-    periodEndDate: Date;
+    periodEndDate: Date | null;
     currency: string;
     auditStatus: AuditStatus;
     cash: Prisma.Decimal | null;
@@ -646,7 +685,7 @@ export class BalanceSheetsService {
       period: item.period,
       fiscalYear: item.fiscalYear,
       fiscalQuarter: item.fiscalQuarter,
-      periodEndDate: item.periodEndDate.toISOString(),
+      periodEndDate: item.periodEndDate?.toISOString() ?? null,
       currency: item.currency,
       auditStatus: item.auditStatus,
       cash: item.cash?.toString() ?? null,

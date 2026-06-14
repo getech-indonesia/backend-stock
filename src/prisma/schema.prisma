@@ -323,7 +323,7 @@ model IncomeStatement {
     period        PeriodType
     fiscalYear    Int
     fiscalQuarter Int? // 1-4, null jika ANNUAL atau TTM
-    periodEndDate DateTime
+    periodEndDate DateTime?
     currency      String
     auditStatus   AuditStatus @default(UNAUDITED)
 
@@ -384,7 +384,7 @@ model BalanceSheet {
     period        PeriodType
     fiscalYear    Int
     fiscalQuarter Int?
-    periodEndDate DateTime
+    periodEndDate DateTime?
     currency      String
     auditStatus   AuditStatus @default(UNAUDITED)
 
@@ -452,7 +452,7 @@ model CashFlowStatement {
     period        PeriodType
     fiscalYear    Int
     fiscalQuarter Int?
-    periodEndDate DateTime
+    periodEndDate DateTime?
     currency      String
     auditStatus   AuditStatus @default(UNAUDITED)
 
