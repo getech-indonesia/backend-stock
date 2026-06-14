@@ -105,6 +105,95 @@ export class BalanceSheetsService {
     };
   }
 
+  async findAllByCompanyAdmin(
+    companyId: string,
+    query: AdminBalanceSheetsQueryDto,
+  ) {
+    if (!companyId || !companyId.trim()) {
+      throw new BadRequestException('companyId is required');
+    }
+
+    const keyword = query.keyword?.trim() ?? query.q?.trim();
+
+    const filters: Prisma.BalanceSheetWhereInput[] = [
+      {
+        companyId: companyId.trim(),
+      },
+    ];
+
+    if (keyword) {
+      filters.push({
+        company: {
+          OR: [
+            {
+              displayName: {
+                contains: keyword,
+                mode: 'insensitive',
+              },
+            },
+            {
+              legalName: {
+                contains: keyword,
+                mode: 'insensitive',
+              },
+            },
+            {
+              listings: {
+                some: {
+                  symbol: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (query.period) {
+      filters.push({
+        period: query.period,
+      });
+    }
+
+    if (query.sectorId) {
+      filters.push({
+        company: {
+          industry: {
+            sectorId: query.sectorId,
+          },
+        },
+      });
+    }
+
+    const where = {
+      AND: filters,
+    };
+
+    const items = await this.prisma.balanceSheet.findMany({
+      where,
+      orderBy: [
+        { fiscalYear: 'desc' },
+        { fiscalQuarter: 'desc' },
+        { periodEndDate: 'desc' },
+      ],
+      include: {
+        company: {
+          select: {
+            id: true,
+            displayName: true,
+            legalName: true,
+            logoUrl: true,
+          },
+        },
+      },
+    });
+
+    return items.map((item) => this.mapBalanceSheet(item));
+  }
+
   async findOneAdmin(id: string) {
     const balanceSheet = await this.prisma.balanceSheet.findUnique({
       where: { id },

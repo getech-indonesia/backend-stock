@@ -12,6 +12,14 @@ export class BalanceSheetsController {
     return this.balanceSheetsService.findAllAdmin(query);
   }
 
+  @Get('company/:companyId')
+  async getBalanceSheetsByCompany(
+    @Param('companyId') companyId: string,
+    @Query() query: AdminBalanceSheetsQueryDto,
+  ) {
+    return this.balanceSheetsService.findAllByCompanyAdmin(companyId, query);
+  }
+
   @Get(':id')
   async getBalanceSheet(@Param('id') id: string) {
     return this.balanceSheetsService.findOneAdmin(id);

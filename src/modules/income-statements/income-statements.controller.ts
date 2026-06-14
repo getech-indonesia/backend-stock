@@ -12,6 +12,14 @@ export class IncomeStatementsController {
     return this.incomeStatementsService.findAllAdmin(query);
   }
 
+  @Get('company/:companyId')
+  async getIncomeStatementsByCompany(
+    @Param('companyId') companyId: string,
+    @Query() query: AdminIncomeStatementsQueryDto,
+  ) {
+    return this.incomeStatementsService.findAllByCompanyAdmin(companyId, query);
+  }
+
   @Get(':id')
   async getIncomeStatement(@Param('id') id: string) {
     return this.incomeStatementsService.findOneAdmin(id);

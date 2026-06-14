@@ -6,7 +6,7 @@ import { AdminIncomeStatementsQueryDto } from './dto/admin-income-statements-que
 
 @Injectable()
 export class IncomeStatementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findAllAdmin(query: AdminIncomeStatementsQueryDto) {
     const page = query.page ?? 1;
@@ -66,8 +66,8 @@ export class IncomeStatementsService {
     const where =
       filters.length > 0
         ? {
-            AND: filters,
-          }
+          AND: filters,
+        }
         : undefined;
 
     const [items, total] = await Promise.all([
@@ -103,6 +103,95 @@ export class IncomeStatementsService {
         totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
       },
     };
+  }
+
+  async findAllByCompanyAdmin(
+    companyId: string,
+    query: AdminIncomeStatementsQueryDto,
+  ) {
+    if (!companyId || !companyId.trim()) {
+      throw new BadRequestException('companyId is required');
+    }
+
+    const keyword = query.keyword?.trim() ?? query.q?.trim();
+
+    const filters: Prisma.IncomeStatementWhereInput[] = [
+      {
+        companyId: companyId.trim(),
+      },
+    ];
+
+    if (keyword) {
+      filters.push({
+        company: {
+          OR: [
+            {
+              displayName: {
+                contains: keyword,
+                mode: 'insensitive',
+              },
+            },
+            {
+              legalName: {
+                contains: keyword,
+                mode: 'insensitive',
+              },
+            },
+            {
+              listings: {
+                some: {
+                  symbol: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      });
+    }
+
+    if (query.period) {
+      filters.push({
+        period: query.period,
+      });
+    }
+
+    if (query.sectorId) {
+      filters.push({
+        company: {
+          industry: {
+            sectorId: query.sectorId,
+          },
+        },
+      });
+    }
+
+    const where = {
+      AND: filters,
+    };
+
+    const items = await this.prisma.incomeStatement.findMany({
+      where,
+      orderBy: [
+        { fiscalYear: 'desc' },
+        { fiscalQuarter: 'desc' },
+        { periodEndDate: 'desc' },
+      ],
+      include: {
+        company: {
+          select: {
+            id: true,
+            displayName: true,
+            legalName: true,
+            logoUrl: true,
+          },
+        },
+      },
+    });
+
+    return items.map((item) => this.mapIncomeStatement(item));
   }
 
   async findOneAdmin(id: string) {

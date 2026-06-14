@@ -12,6 +12,14 @@ export class CashFlowStatementsController {
     return this.cashFlowStatementsService.findAllAdmin(query);
   }
 
+  @Get('company/:companyId')
+  async getCashFlowStatementsByCompany(
+    @Param('companyId') companyId: string,
+    @Query() query: AdminCashFlowStatementsQueryDto,
+  ) {
+    return this.cashFlowStatementsService.findAllByCompanyAdmin(companyId, query);
+  }
+
   @Get(':id')
   async getCashFlowStatement(@Param('id') id: string) {
     return this.cashFlowStatementsService.findOneAdmin(id);
