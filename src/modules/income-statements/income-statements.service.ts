@@ -53,6 +53,16 @@ export class IncomeStatementsService {
       });
     }
 
+    if (query.sectorId) {
+      filters.push({
+        company: {
+          industry: {
+            sectorId: query.sectorId,
+          },
+        },
+      });
+    }
+
     const where =
       filters.length > 0
         ? {
@@ -118,7 +128,7 @@ export class IncomeStatementsService {
   }
 
   async createAdmin(body: unknown) {
-    const payloads = this.normalizeArrayPayloads(body);
+    const payloads = this.normalizeCreatePayloads(body);
     const created = await Promise.all(
       payloads.map(async (payload) => {
         const data = this.buildCreateData(payload);
@@ -144,7 +154,7 @@ export class IncomeStatementsService {
   }
 
   async batchUpdateAdmin(body: unknown) {
-    const payloads = this.normalizeArrayPayloads(body);
+    const payloads = this.normalizeBatchPayloads(body);
 
     const updated = await Promise.all(
       payloads.map(async (payload) => {
@@ -263,7 +273,11 @@ export class IncomeStatementsService {
     return this.buildIncomeStatementData(body, false) as Prisma.IncomeStatementUncheckedUpdateInput;
   }
 
-  private normalizeArrayPayloads(body: unknown): Record<string, unknown>[] {
+  private normalizeCreatePayloads(body: unknown): Record<string, unknown>[] {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Request body must be an object or an array of objects');
+    }
+
     if (Array.isArray(body)) {
       if (body.length === 0) {
         throw new BadRequestException('Request body array cannot be empty');
@@ -278,7 +292,25 @@ export class IncomeStatementsService {
       });
     }
 
-    throw new BadRequestException('Request body must be an array of objects');
+    return [body as Record<string, unknown>];
+  }
+
+  private normalizeBatchPayloads(body: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(body)) {
+      throw new BadRequestException('Request body must be an array of objects');
+    }
+
+    if (body.length === 0) {
+      throw new BadRequestException('Request body array cannot be empty');
+    }
+
+    return body.map((item, index) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new BadRequestException(`Item at index ${index} must be an object`);
+      }
+
+      return item as Record<string, unknown>;
+    });
   }
 
   private async resolveIncomeStatementId(body: Record<string, unknown>) {

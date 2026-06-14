@@ -1,6 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import { PeriodType } from '@prisma/client';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export class AdminIncomeStatementsQueryDto {
   @IsOptional()
@@ -29,4 +29,8 @@ export class AdminIncomeStatementsQueryDto {
   @IsOptional()
   @IsEnum(PeriodType)
   period?: PeriodType;
+
+  @IsOptional()
+  @IsUUID()
+  sectorId?: string;
 }

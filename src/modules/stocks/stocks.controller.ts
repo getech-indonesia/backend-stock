@@ -35,6 +35,11 @@ export class StocksController {
     return this.stocksService.findAllSectors();
   }
 
+  @Get('admin/sectors')
+  async getAdminSectors() {
+    return this.stocksService.findAllSectors();
+  }
+
   @Get('stock-price')
   async getStockPriceByListingIdAndDate(
     @Query() query: StockPriceQueryDto,
