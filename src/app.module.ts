@@ -12,6 +12,7 @@ import { CorporateActionsModule } from './modules/corporate-actions/corporate-ac
 import { BalanceSheetsModule } from './modules/balance-sheets/balance-sheets.module';
 import { CashFlowStatementsModule } from './modules/cash-flow-statements/cash-flow-statements.module';
 import { IncomeStatementsModule } from './modules/income-statements/income-statements.module';
+import { ListingsModule } from './modules/listings/listings.module';
 import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
 
@@ -53,6 +54,7 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
       BalanceSheetsModule,
       CashFlowStatementsModule,
       IncomeStatementsModule,
+      ListingsModule,
       StocksModule,
     ];
   })(),
