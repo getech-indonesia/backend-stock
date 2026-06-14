@@ -22,6 +22,11 @@ export class IncomeStatementsController {
     return this.incomeStatementsService.createAdmin(body);
   }
 
+  @Post('upsert')
+  async upsertIncomeStatement(@Body() body: unknown) {
+    return this.incomeStatementsService.upsertAdmin(body);
+  }
+
   @Patch('batch')
   async batchUpdateIncomeStatements(@Body() body: unknown) {
     return this.incomeStatementsService.batchUpdateAdmin(body);

@@ -9,6 +9,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { CorporateActionsModule } from './modules/corporate-actions/corporate-actions.module';
+import { BalanceSheetsModule } from './modules/balance-sheets/balance-sheets.module';
+import { CashFlowStatementsModule } from './modules/cash-flow-statements/cash-flow-statements.module';
 import { IncomeStatementsModule } from './modules/income-statements/income-statements.module';
 import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
@@ -48,6 +50,8 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
       AuthModule,
       CompaniesModule,
       CorporateActionsModule,
+      BalanceSheetsModule,
+      CashFlowStatementsModule,
       IncomeStatementsModule,
       StocksModule,
     ];

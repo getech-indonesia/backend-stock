@@ -2,19 +2,19 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { AuditStatus, PeriodType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { AdminIncomeStatementsQueryDto } from './dto/admin-income-statements-query.dto';
+import { AdminBalanceSheetsQueryDto } from './dto/admin-balance-sheets-query.dto';
 
 @Injectable()
-export class IncomeStatementsService {
+export class BalanceSheetsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllAdmin(query: AdminIncomeStatementsQueryDto) {
+  async findAllAdmin(query: AdminBalanceSheetsQueryDto) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
     const keyword = query.keyword?.trim() ?? query.q?.trim();
 
-    const filters: Prisma.IncomeStatementWhereInput[] = [];
+    const filters: Prisma.BalanceSheetWhereInput[] = [];
 
     if (keyword) {
       filters.push({
@@ -71,7 +71,7 @@ export class IncomeStatementsService {
         : undefined;
 
     const [items, total] = await Promise.all([
-      this.prisma.incomeStatement.findMany({
+      this.prisma.balanceSheet.findMany({
         where,
         skip,
         take: pageSize,
@@ -91,11 +91,11 @@ export class IncomeStatementsService {
           },
         },
       }),
-      this.prisma.incomeStatement.count({ where }),
+      this.prisma.balanceSheet.count({ where }),
     ]);
 
     return {
-      items: items.map((item) => this.mapIncomeStatement(item)),
+      items: items.map((item) => this.mapBalanceSheet(item)),
       pagination: {
         page,
         pageSize,
@@ -106,7 +106,7 @@ export class IncomeStatementsService {
   }
 
   async findOneAdmin(id: string) {
-    const incomeStatement = await this.prisma.incomeStatement.findUnique({
+    const balanceSheet = await this.prisma.balanceSheet.findUnique({
       where: { id },
       include: {
         company: {
@@ -120,11 +120,11 @@ export class IncomeStatementsService {
       },
     });
 
-    if (!incomeStatement) {
-      throw new NotFoundException(`Income statement ${id} not found`);
+    if (!balanceSheet) {
+      throw new NotFoundException(`Balance sheet ${id} not found`);
     }
 
-    return this.mapIncomeStatement(incomeStatement);
+    return this.mapBalanceSheet(balanceSheet);
   }
 
   async createAdmin(body: unknown) {
@@ -132,11 +132,11 @@ export class IncomeStatementsService {
     const created = await Promise.all(
       payloads.map(async (payload) => {
         const data = this.buildCreateData(payload);
-        const incomeStatement = await this.upsertIncomeStatement({
+        const balanceSheet = await this.upsertBalanceSheet({
           data,
         });
 
-        return this.mapIncomeStatement(incomeStatement);
+        return this.mapBalanceSheet(balanceSheet);
       }),
     );
 
@@ -149,11 +149,11 @@ export class IncomeStatementsService {
     const upserted = await Promise.all(
       payloads.map(async (payload) => {
         const data = this.buildCreateData(payload);
-        const incomeStatement = await this.upsertIncomeStatementByCompanyPeriodYear({
+        const balanceSheet = await this.upsertBalanceSheetByCompanyPeriodYear({
           data,
         });
 
-        return this.mapIncomeStatement(incomeStatement);
+        return this.mapBalanceSheet(balanceSheet);
       }),
     );
 
@@ -166,8 +166,8 @@ export class IncomeStatementsService {
     }
 
     const data = this.buildUpdateData(body as Record<string, unknown>);
-    const incomeStatement = await this.updateIncomeStatementById(id, data);
-    return this.mapIncomeStatement(incomeStatement);
+    const balanceSheet = await this.updateBalanceSheetById(id, data);
+    return this.mapBalanceSheet(balanceSheet);
   }
 
   async batchUpdateAdmin(body: unknown) {
@@ -175,26 +175,23 @@ export class IncomeStatementsService {
 
     const updated = await Promise.all(
       payloads.map(async (payload) => {
-        const targetId = await this.resolveIncomeStatementId(payload);
+        const targetId = await this.resolveBalanceSheetId(payload);
         const data = this.buildUpdateData(payload);
-        const incomeStatement = await this.updateIncomeStatementById(
-          targetId,
-          data,
-        );
-        return this.mapIncomeStatement(incomeStatement);
+        const balanceSheet = await this.updateBalanceSheetById(targetId, data);
+        return this.mapBalanceSheet(balanceSheet);
       }),
     );
 
     return updated;
   }
 
-  private async updateIncomeStatementById(
+  private async updateBalanceSheetById(
     id: string,
-    data: Prisma.IncomeStatementUncheckedUpdateInput,
+    data: Prisma.BalanceSheetUncheckedUpdateInput,
   ) {
-    await this.ensureIncomeStatementExists(id);
+    await this.ensureBalanceSheetExists(id);
 
-    return this.prisma.incomeStatement.update({
+    return this.prisma.balanceSheet.update({
       where: { id },
       data,
       include: {
@@ -210,10 +207,10 @@ export class IncomeStatementsService {
     });
   }
 
-  private async upsertIncomeStatement(input: {
-    data: Prisma.IncomeStatementUncheckedCreateInput;
+  private async upsertBalanceSheet(input: {
+    data: Prisma.BalanceSheetUncheckedCreateInput;
   }) {
-    const existing = await this.prisma.incomeStatement.findFirst({
+    const existing = await this.prisma.balanceSheet.findFirst({
       where: {
         companyId: input.data.companyId,
         period: input.data.period,
@@ -224,7 +221,7 @@ export class IncomeStatementsService {
     });
 
     if (existing) {
-      return this.prisma.incomeStatement.update({
+      return this.prisma.balanceSheet.update({
         where: { id: existing.id },
         data: input.data,
         include: {
@@ -240,7 +237,7 @@ export class IncomeStatementsService {
       });
     }
 
-    return this.prisma.incomeStatement.create({
+    return this.prisma.balanceSheet.create({
       data: input.data,
       include: {
         company: {
@@ -255,10 +252,10 @@ export class IncomeStatementsService {
     });
   }
 
-  private async upsertIncomeStatementByCompanyPeriodYear(input: {
-    data: Prisma.IncomeStatementUncheckedCreateInput;
+  private async upsertBalanceSheetByCompanyPeriodYear(input: {
+    data: Prisma.BalanceSheetUncheckedCreateInput;
   }) {
-    const existing = await this.prisma.incomeStatement.findFirst({
+    const existing = await this.prisma.balanceSheet.findFirst({
       where: {
         companyId: input.data.companyId,
         period: input.data.period,
@@ -268,7 +265,7 @@ export class IncomeStatementsService {
     });
 
     if (existing) {
-      return this.prisma.incomeStatement.update({
+      return this.prisma.balanceSheet.update({
         where: { id: existing.id },
         data: input.data,
         include: {
@@ -284,7 +281,7 @@ export class IncomeStatementsService {
       });
     }
 
-    return this.prisma.incomeStatement.create({
+    return this.prisma.balanceSheet.create({
       data: input.data,
       include: {
         company: {
@@ -299,26 +296,30 @@ export class IncomeStatementsService {
     });
   }
 
-  private ensureIncomeStatementExists(id: string) {
-    return this.prisma.incomeStatement.findUnique({
-      where: { id },
-      select: { id: true },
-    }).then((exists) => {
-      if (!exists) {
-        throw new NotFoundException(`Income statement ${id} not found`);
-      }
-    });
+  private ensureBalanceSheetExists(id: string) {
+    return this.prisma.balanceSheet
+      .findUnique({
+        where: { id },
+        select: { id: true },
+      })
+      .then((exists) => {
+        if (!exists) {
+          throw new NotFoundException(`Balance sheet ${id} not found`);
+        }
+      });
   }
 
-  private buildCreateData(body: Record<string, unknown>): Prisma.IncomeStatementUncheckedCreateInput {
+  private buildCreateData(
+    body: Record<string, unknown>,
+  ): Prisma.BalanceSheetUncheckedCreateInput {
     const requiredFields = [
       'companyId',
       'period',
       'fiscalYear',
       'periodEndDate',
       'currency',
-      'revenue',
-      'netIncome',
+      'totalAssets',
+      'totalEquity',
     ] as const;
 
     for (const field of requiredFields) {
@@ -327,11 +328,13 @@ export class IncomeStatementsService {
       }
     }
 
-    return this.buildIncomeStatementData(body, true) as Prisma.IncomeStatementUncheckedCreateInput;
+    return this.buildBalanceSheetData(body, true) as Prisma.BalanceSheetUncheckedCreateInput;
   }
 
-  private buildUpdateData(body: Record<string, unknown>): Prisma.IncomeStatementUncheckedUpdateInput {
-    return this.buildIncomeStatementData(body, false) as Prisma.IncomeStatementUncheckedUpdateInput;
+  private buildUpdateData(
+    body: Record<string, unknown>,
+  ): Prisma.BalanceSheetUncheckedUpdateInput {
+    return this.buildBalanceSheetData(body, false) as Prisma.BalanceSheetUncheckedUpdateInput;
   }
 
   private normalizeCreatePayloads(body: unknown): Record<string, unknown>[] {
@@ -374,7 +377,7 @@ export class IncomeStatementsService {
     });
   }
 
-  private async resolveIncomeStatementId(body: Record<string, unknown>) {
+  private async resolveBalanceSheetId(body: Record<string, unknown>) {
     const candidate = body.id;
 
     if (typeof candidate === 'string' && candidate.trim()) {
@@ -400,7 +403,7 @@ export class IncomeStatementsService {
       );
     }
 
-    const existing = await this.prisma.incomeStatement.findFirst({
+    const existing = await this.prisma.balanceSheet.findFirst({
       where: {
         companyId: companyId.trim(),
         period: period as PeriodType,
@@ -415,14 +418,14 @@ export class IncomeStatementsService {
 
     if (!existing) {
       throw new NotFoundException(
-        `Income statement not found for companyId=${companyId}, period=${period}, fiscalYear=${fiscalYear}, fiscalQuarter=${fiscalQuarter ?? 'null'}`,
+        `Balance sheet not found for companyId=${companyId}, period=${period}, fiscalYear=${fiscalYear}, fiscalQuarter=${fiscalQuarter ?? 'null'}`,
       );
     }
 
     return existing.id;
   }
 
-  private buildIncomeStatementData(
+  private buildBalanceSheetData(
     body: Record<string, unknown>,
     isCreate: boolean,
   ): Record<string, unknown> {
@@ -436,30 +439,39 @@ export class IncomeStatementsService {
     this.setString(data, body, 'currency', isCreate);
     this.setEnum(data, body, 'auditStatus');
 
-    this.setDecimal(data, body, 'revenue', isCreate);
-    this.setDecimal(data, body, 'revenueGrowthYoY');
-    this.setDecimal(data, body, 'cogs');
-    this.setDecimal(data, body, 'grossProfit');
-    this.setDecimal(data, body, 'operatingExpenses');
-    this.setDecimal(data, body, 'sellingExpenses');
-    this.setDecimal(data, body, 'generalAdminExpenses');
-    this.setDecimal(data, body, 'rdExpenses');
-    this.setDecimal(data, body, 'depreciationAmort');
-    this.setDecimal(data, body, 'ebit');
-    this.setDecimal(data, body, 'ebitda');
-    this.setDecimal(data, body, 'operatingIncome');
-    this.setDecimal(data, body, 'interestExpense');
-    this.setDecimal(data, body, 'interestIncome');
-    this.setDecimal(data, body, 'otherNonOperatingIncome');
-    this.setDecimal(data, body, 'pretaxIncome');
-    this.setDecimal(data, body, 'incomeTaxExpense');
-    this.setDecimal(data, body, 'effectiveTaxRate');
-    this.setDecimal(data, body, 'netIncome', isCreate);
-    this.setDecimal(data, body, 'netIncomeAttributable');
-    this.setDecimal(data, body, 'minorityInterest');
-    this.setDecimal(data, body, 'eps');
-    this.setDecimal(data, body, 'epsDiluted');
-    this.setBigInt(data, body, 'sharesWeightedAvg');
+    this.setDecimal(data, body, 'cash');
+    this.setDecimal(data, body, 'shortTermInvestments');
+    this.setDecimal(data, body, 'accountsReceivable');
+    this.setDecimal(data, body, 'inventory');
+    this.setDecimal(data, body, 'otherCurrentAssets');
+    this.setDecimal(data, body, 'totalCurrentAssets');
+    this.setDecimal(data, body, 'propertyPlantEquipment');
+    this.setDecimal(data, body, 'intangibleAssets');
+    this.setDecimal(data, body, 'goodwill');
+    this.setDecimal(data, body, 'longTermInvestments');
+    this.setDecimal(data, body, 'otherNonCurrentAssets');
+    this.setDecimal(data, body, 'totalNonCurrentAssets');
+    this.setDecimal(data, body, 'totalAssets', isCreate);
+    this.setDecimal(data, body, 'shortTermDebt');
+    this.setDecimal(data, body, 'accountsPayable');
+    this.setDecimal(data, body, 'deferredRevenue');
+    this.setDecimal(data, body, 'otherCurrentLiabilities');
+    this.setDecimal(data, body, 'totalCurrentLiabilities');
+    this.setDecimal(data, body, 'longTermDebt');
+    this.setDecimal(data, body, 'deferredTaxLiabilities');
+    this.setDecimal(data, body, 'otherNonCurrentLiabilities');
+    this.setDecimal(data, body, 'totalNonCurrentLiabilities');
+    this.setDecimal(data, body, 'totalLiabilities');
+    this.setDecimal(data, body, 'commonStock');
+    this.setDecimal(data, body, 'additionalPaidInCapital');
+    this.setDecimal(data, body, 'retainedEarnings');
+    this.setDecimal(data, body, 'treasuryStock');
+    this.setDecimal(data, body, 'otherEquity');
+    this.setDecimal(data, body, 'minorityInterestEquity');
+    this.setDecimal(data, body, 'totalEquity', isCreate);
+    this.setDecimal(data, body, 'bookValuePerShare');
+    this.setDecimal(data, body, 'netDebt');
+    this.setDecimal(data, body, 'workingCapital');
 
     return data;
   }
@@ -577,20 +589,7 @@ export class IncomeStatementsService {
     target[key] = new Prisma.Decimal(String(value));
   }
 
-  private setBigInt(
-    target: Record<string, unknown>,
-    body: Record<string, unknown>,
-    key: string,
-  ) {
-    const value = body[key];
-    if (value === undefined || value === null || value === '') {
-      return;
-    }
-
-    target[key] = BigInt(String(value));
-  }
-
-  private mapIncomeStatement(item: {
+  private mapBalanceSheet(item: {
     id: string;
     companyId: string;
     period: PeriodType;
@@ -599,30 +598,39 @@ export class IncomeStatementsService {
     periodEndDate: Date;
     currency: string;
     auditStatus: AuditStatus;
-    revenue: Prisma.Decimal;
-    revenueGrowthYoY: Prisma.Decimal | null;
-    cogs: Prisma.Decimal | null;
-    grossProfit: Prisma.Decimal | null;
-    operatingExpenses: Prisma.Decimal | null;
-    sellingExpenses: Prisma.Decimal | null;
-    generalAdminExpenses: Prisma.Decimal | null;
-    rdExpenses: Prisma.Decimal | null;
-    depreciationAmort: Prisma.Decimal | null;
-    ebit: Prisma.Decimal | null;
-    ebitda: Prisma.Decimal | null;
-    operatingIncome: Prisma.Decimal | null;
-    interestExpense: Prisma.Decimal | null;
-    interestIncome: Prisma.Decimal | null;
-    otherNonOperatingIncome: Prisma.Decimal | null;
-    pretaxIncome: Prisma.Decimal | null;
-    incomeTaxExpense: Prisma.Decimal | null;
-    effectiveTaxRate: Prisma.Decimal | null;
-    netIncome: Prisma.Decimal;
-    netIncomeAttributable: Prisma.Decimal | null;
-    minorityInterest: Prisma.Decimal | null;
-    eps: Prisma.Decimal | null;
-    epsDiluted: Prisma.Decimal | null;
-    sharesWeightedAvg: bigint | null;
+    cash: Prisma.Decimal | null;
+    shortTermInvestments: Prisma.Decimal | null;
+    accountsReceivable: Prisma.Decimal | null;
+    inventory: Prisma.Decimal | null;
+    otherCurrentAssets: Prisma.Decimal | null;
+    totalCurrentAssets: Prisma.Decimal | null;
+    propertyPlantEquipment: Prisma.Decimal | null;
+    intangibleAssets: Prisma.Decimal | null;
+    goodwill: Prisma.Decimal | null;
+    longTermInvestments: Prisma.Decimal | null;
+    otherNonCurrentAssets: Prisma.Decimal | null;
+    totalNonCurrentAssets: Prisma.Decimal | null;
+    totalAssets: Prisma.Decimal;
+    shortTermDebt: Prisma.Decimal | null;
+    accountsPayable: Prisma.Decimal | null;
+    deferredRevenue: Prisma.Decimal | null;
+    otherCurrentLiabilities: Prisma.Decimal | null;
+    totalCurrentLiabilities: Prisma.Decimal | null;
+    longTermDebt: Prisma.Decimal | null;
+    deferredTaxLiabilities: Prisma.Decimal | null;
+    otherNonCurrentLiabilities: Prisma.Decimal | null;
+    totalNonCurrentLiabilities: Prisma.Decimal | null;
+    totalLiabilities: Prisma.Decimal | null;
+    commonStock: Prisma.Decimal | null;
+    additionalPaidInCapital: Prisma.Decimal | null;
+    retainedEarnings: Prisma.Decimal | null;
+    treasuryStock: Prisma.Decimal | null;
+    otherEquity: Prisma.Decimal | null;
+    minorityInterestEquity: Prisma.Decimal | null;
+    totalEquity: Prisma.Decimal;
+    bookValuePerShare: Prisma.Decimal | null;
+    netDebt: Prisma.Decimal | null;
+    workingCapital: Prisma.Decimal | null;
     createdAt: Date;
     updatedAt: Date;
     company: {
@@ -641,30 +649,39 @@ export class IncomeStatementsService {
       periodEndDate: item.periodEndDate.toISOString(),
       currency: item.currency,
       auditStatus: item.auditStatus,
-      revenue: item.revenue.toString(),
-      revenueGrowthYoY: item.revenueGrowthYoY?.toString() ?? null,
-      cogs: item.cogs?.toString() ?? null,
-      grossProfit: item.grossProfit?.toString() ?? null,
-      operatingExpenses: item.operatingExpenses?.toString() ?? null,
-      sellingExpenses: item.sellingExpenses?.toString() ?? null,
-      generalAdminExpenses: item.generalAdminExpenses?.toString() ?? null,
-      rdExpenses: item.rdExpenses?.toString() ?? null,
-      depreciationAmort: item.depreciationAmort?.toString() ?? null,
-      ebit: item.ebit?.toString() ?? null,
-      ebitda: item.ebitda?.toString() ?? null,
-      operatingIncome: item.operatingIncome?.toString() ?? null,
-      interestExpense: item.interestExpense?.toString() ?? null,
-      interestIncome: item.interestIncome?.toString() ?? null,
-      otherNonOperatingIncome: item.otherNonOperatingIncome?.toString() ?? null,
-      pretaxIncome: item.pretaxIncome?.toString() ?? null,
-      incomeTaxExpense: item.incomeTaxExpense?.toString() ?? null,
-      effectiveTaxRate: item.effectiveTaxRate?.toString() ?? null,
-      netIncome: item.netIncome.toString(),
-      netIncomeAttributable: item.netIncomeAttributable?.toString() ?? null,
-      minorityInterest: item.minorityInterest?.toString() ?? null,
-      eps: item.eps?.toString() ?? null,
-      epsDiluted: item.epsDiluted?.toString() ?? null,
-      sharesWeightedAvg: item.sharesWeightedAvg?.toString() ?? null,
+      cash: item.cash?.toString() ?? null,
+      shortTermInvestments: item.shortTermInvestments?.toString() ?? null,
+      accountsReceivable: item.accountsReceivable?.toString() ?? null,
+      inventory: item.inventory?.toString() ?? null,
+      otherCurrentAssets: item.otherCurrentAssets?.toString() ?? null,
+      totalCurrentAssets: item.totalCurrentAssets?.toString() ?? null,
+      propertyPlantEquipment: item.propertyPlantEquipment?.toString() ?? null,
+      intangibleAssets: item.intangibleAssets?.toString() ?? null,
+      goodwill: item.goodwill?.toString() ?? null,
+      longTermInvestments: item.longTermInvestments?.toString() ?? null,
+      otherNonCurrentAssets: item.otherNonCurrentAssets?.toString() ?? null,
+      totalNonCurrentAssets: item.totalNonCurrentAssets?.toString() ?? null,
+      totalAssets: item.totalAssets.toString(),
+      shortTermDebt: item.shortTermDebt?.toString() ?? null,
+      accountsPayable: item.accountsPayable?.toString() ?? null,
+      deferredRevenue: item.deferredRevenue?.toString() ?? null,
+      otherCurrentLiabilities: item.otherCurrentLiabilities?.toString() ?? null,
+      totalCurrentLiabilities: item.totalCurrentLiabilities?.toString() ?? null,
+      longTermDebt: item.longTermDebt?.toString() ?? null,
+      deferredTaxLiabilities: item.deferredTaxLiabilities?.toString() ?? null,
+      otherNonCurrentLiabilities: item.otherNonCurrentLiabilities?.toString() ?? null,
+      totalNonCurrentLiabilities: item.totalNonCurrentLiabilities?.toString() ?? null,
+      totalLiabilities: item.totalLiabilities?.toString() ?? null,
+      commonStock: item.commonStock?.toString() ?? null,
+      additionalPaidInCapital: item.additionalPaidInCapital?.toString() ?? null,
+      retainedEarnings: item.retainedEarnings?.toString() ?? null,
+      treasuryStock: item.treasuryStock?.toString() ?? null,
+      otherEquity: item.otherEquity?.toString() ?? null,
+      minorityInterestEquity: item.minorityInterestEquity?.toString() ?? null,
+      totalEquity: item.totalEquity.toString(),
+      bookValuePerShare: item.bookValuePerShare?.toString() ?? null,
+      netDebt: item.netDebt?.toString() ?? null,
+      workingCapital: item.workingCapital?.toString() ?? null,
       createdAt: item.createdAt.toISOString(),
       updatedAt: item.updatedAt.toISOString(),
       company: item.company,
