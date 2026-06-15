@@ -191,6 +191,144 @@ export class StockPriceSyncService {
         };
     }
 
+    async syncAllPricesWithUpsert(listingId?: string): Promise<{
+        listingsProcessed: number;
+        listingsFailed: number;
+        upsertedCount: number;
+        failedCount: number;
+    }> {
+        let targetListings: { id: string; symbol: string }[] = [];
+
+        if (listingId) {
+            const listing = await this.prisma.listing.findUnique({
+                where: { id: listingId },
+                select: { id: true, symbol: true },
+            });
+            if (!listing) {
+                throw new Error(`Listing with ID ${listingId} not found`);
+            }
+            targetListings = [listing];
+        } else {
+            targetListings = await this.prisma.listing.findMany({
+                select: { id: true, symbol: true },
+                orderBy: { symbol: 'asc' },
+            });
+        }
+
+        let listingsProcessed = 0;
+        let listingsFailed = 0;
+        let upsertedCount = 0;
+        let failedCount = 0;
+
+        await this.runWithConcurrency(
+            targetListings,
+            this.concurrency,
+            async (listing) => {
+                try {
+                    const result = await this.syncListingWithFullUpsert(
+                        listing.id,
+                        listing.symbol,
+                    );
+                    if (result.upserted > 0) {
+                        listingsProcessed++;
+                        upsertedCount += result.upserted;
+                        failedCount += result.failed;
+                    } else if (result.failed > 0) {
+                        listingsFailed++;
+                        failedCount += result.failed;
+                    } else {
+                        listingsProcessed++;
+                    }
+                } catch (error) {
+                    listingsFailed++;
+                    this.logger.error(
+                        `Full stock price sync failed for ${listing.symbol} (${listing.id}): ${
+                            error instanceof Error ? error.message : String(error)
+                        }`,
+                    );
+                }
+            },
+        );
+
+        return {
+            listingsProcessed,
+            listingsFailed,
+            upsertedCount,
+            failedCount,
+        };
+    }
+
+    async syncListingWithFullUpsert(
+        listingId: string,
+        symbol: string,
+    ): Promise<{
+        upserted: number;
+        failed: number;
+    }> {
+        const rows = await this.fetchStockPrices(symbol);
+
+        if (rows.length === 0) {
+            this.logger.warn(
+                `Skipping ${symbol} because Python backend returned no stock price rows`,
+            );
+            return { upserted: 0, failed: 0 };
+        }
+
+        let upserted = 0;
+        let failed = 0;
+        const batchSize = 100;
+
+        for (let i = 0; i < rows.length; i += batchSize) {
+            const batch = rows.slice(i, i + batchSize);
+            try {
+                await this.prisma.$transaction(
+                    batch.map((row) =>
+                        this.prisma.stockPrice.upsert({
+                            where: {
+                                listingId_date: {
+                                    listingId,
+                                    date: row.date,
+                                },
+                            },
+                            update: {
+                                open: row.open,
+                                high: row.high,
+                                low: row.low,
+                                close: row.close,
+                                adjClose: row.adjClose,
+                                volume: row.volume,
+                                value: row.value,
+                            },
+                            create: {
+                                listingId,
+                                date: row.date,
+                                open: row.open,
+                                high: row.high,
+                                low: row.low,
+                                close: row.close,
+                                adjClose: row.adjClose,
+                                volume: row.volume,
+                                value: row.value,
+                            },
+                        })
+                    )
+                );
+                upserted += batch.length;
+            } catch (error) {
+                this.logger.error(
+                    `Failed to upsert stock price batch for ${symbol}: ${error instanceof Error ? error.message : String(error)}`
+                );
+                failed += batch.length;
+            }
+        }
+
+        this.logger.log(
+            `Stock prices full upsert complete for ${symbol}. upserted=${upserted} failed=${failed}`,
+        );
+
+        return { upserted, failed };
+    }
+
     private async syncListing(
         listingId: string,
         symbol: string,

@@ -8,10 +8,12 @@ import {
 } from '@nestjs/common';
 
 import { FinancialStatementSyncService } from '../../jobs/stock-sync/sync/financial-statement-sync.service';
+import { StockPriceSyncService } from '../../jobs/stock-sync/sync/stock-price-sync.service';
 import { StockPriceQueryDto } from './dto/stock-price-query.dto';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
 import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
 import { SyncFinancialStatementsQueryDto } from './dto/sync-financial-statements-query.dto';
+import { SyncStockPricesQueryDto } from './dto/sync-stock-prices-query.dto';
 import { CandlesQueryDto } from './dto/candles-query.dto';
 import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 import { StocksService } from './stocks.service';
@@ -21,6 +23,7 @@ export class StocksController {
   constructor(
     private readonly stocksService: StocksService,
     private readonly financialStatementSyncService: FinancialStatementSyncService,
+    private readonly stockPriceSyncService: StockPriceSyncService,
   ) { }
 
   @Get('stocks')
@@ -218,6 +221,13 @@ export class StocksController {
   ) {
     const year = query.year ?? new Date().getUTCFullYear();
     return this.financialStatementSyncService.syncAllFromPython(year);
+  }
+
+  @Post('admin/stock-prices/sync')
+  async syncStockPrices(
+    @Query() query: SyncStockPricesQueryDto,
+  ) {
+    return this.stockPriceSyncService.syncAllPricesWithUpsert(query.listingId);
   }
 
 }
