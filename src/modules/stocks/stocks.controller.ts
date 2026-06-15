@@ -58,6 +58,14 @@ export class StocksController {
     return stockPrice;
   }
 
+  @Get('admin/stocks/:symbol/stock-price')
+  async getAdminStockPrice(
+    @Param('symbol') symbol: string,
+    @Query() query: CandlesQueryDto,
+  ) {
+    return this.getStockCandles(symbol, query);
+  }
+
   @Get('stocks/:symbol')
   async getStockBySymbol(
     @Param('symbol') symbol: string,
