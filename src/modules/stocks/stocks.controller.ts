@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   NotFoundException,
@@ -217,6 +218,11 @@ export class StocksController {
     @Query() query: SyncStockPricesQueryDto,
   ) {
     return this.stockPriceSyncService.syncAllPricesWithUpsert(query.listingId);
+  }
+
+  @Post('admin/stock-prices/upsert')
+  async upsertAdminStockPrices(@Body() body: unknown) {
+    return this.stocksService.upsertAdminStockPrices(body);
   }
 
 }

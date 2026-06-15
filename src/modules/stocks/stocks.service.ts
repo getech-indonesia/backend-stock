@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PeriodType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -271,6 +271,159 @@ export class StocksService {
       value: stockPrice.value?.toString() ?? null,
       createdAt: stockPrice.createdAt.toISOString(),
     };
+  }
+
+  async upsertAdminStockPrices(body: unknown) {
+    const payloads = this.normalizeCreatePayloads(body);
+
+    const upserted = await Promise.all(
+      payloads.map(async (payload) => {
+        const normalizedPayload = this.normalizeAdminStockPricePayload(payload);
+        const listing = await this.findListingByCompanyId(normalizedPayload.companyId);
+
+        return this.upsertStockPriceByListingIdAndDate({
+          listingId: listing.id,
+          date: normalizedPayload.date,
+          open: normalizedPayload.open,
+          high: normalizedPayload.high,
+          low: normalizedPayload.low,
+          close: normalizedPayload.close,
+          volume: normalizedPayload.volume,
+          value: normalizedPayload.value,
+        });
+      }),
+    );
+
+    return payloads.length === 1 ? upserted[0] : upserted;
+  }
+
+  private async findListingByCompanyId(companyId: string) {
+    if (typeof companyId !== 'string' || !companyId.trim()) {
+      throw new BadRequestException('companyId is required');
+    }
+
+    const listing = await this.prisma.listing.findFirst({
+      where: {
+        companyId: companyId.trim(),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!listing) {
+      throw new BadRequestException(`Listing not found for companyId=${companyId}`);
+    }
+
+    return listing;
+  }
+
+  private async upsertStockPriceByListingIdAndDate(input: {
+    listingId: string;
+    date: string;
+    open: string | null;
+    high: string | null;
+    low: string | null;
+    close: string | null;
+    volume: string | null;
+    value: string | null;
+  }) {
+    const tradingDate = this.parseTradingDate(input.date);
+    if (!tradingDate) {
+      throw new BadRequestException(`Invalid date format: ${input.date}`);
+    }
+
+    const createData: Prisma.StockPriceUncheckedCreateInput = {
+      listingId: input.listingId,
+      date: tradingDate,
+      open: input.open !== null && input.open !== undefined ? new Prisma.Decimal(input.open) : new Prisma.Decimal(0),
+      high: input.high !== null && input.high !== undefined ? new Prisma.Decimal(input.high) : new Prisma.Decimal(0),
+      low: input.low !== null && input.low !== undefined ? new Prisma.Decimal(input.low) : new Prisma.Decimal(0),
+      close: input.close !== null && input.close !== undefined ? new Prisma.Decimal(input.close) : new Prisma.Decimal(0),
+      volume: input.volume !== null && input.volume !== undefined ? BigInt(input.volume) : 0n,
+      value: input.value !== null && input.value !== undefined ? new Prisma.Decimal(input.value) : null,
+    };
+
+    const updateData: Prisma.StockPriceUncheckedUpdateInput = {
+      open: createData.open,
+      high: createData.high,
+      low: createData.low,
+      close: createData.close,
+      volume: createData.volume,
+      value: createData.value,
+    };
+
+    const stockPrice = await this.prisma.stockPrice.upsert({
+      where: {
+        listingId_date: {
+          listingId: input.listingId,
+          date: tradingDate,
+        },
+      },
+      update: updateData,
+      create: createData,
+    });
+
+    return {
+      listingId: stockPrice.listingId,
+      date: stockPrice.date.toISOString(),
+      open: stockPrice.open.toString(),
+      high: stockPrice.high.toString(),
+      low: stockPrice.low.toString(),
+      close: stockPrice.close.toString(),
+      adjClose: stockPrice.adjClose?.toString() ?? null,
+      volume: stockPrice.volume.toString(),
+      value: stockPrice.value?.toString() ?? null,
+      createdAt: stockPrice.createdAt.toISOString(),
+    };
+  }
+
+  private normalizeAdminStockPricePayload(body: Record<string, unknown>) {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new BadRequestException('Request body must be an object');
+    }
+
+    const companyId = body.companyId;
+    const date = body.date ?? '';
+
+    if (typeof companyId !== 'string' || !companyId.trim()) {
+      throw new BadRequestException('companyId is required');
+    }
+
+    const normalizedDate = typeof date === 'string' ? date.trim() : '';
+
+    return {
+      companyId: companyId.trim(),
+      date: normalizedDate,
+      open: body.open === null || body.open === undefined ? null : String(body.open),
+      high: body.high === null || body.high === undefined ? null : String(body.high),
+      low: body.low === null || body.low === undefined ? null : String(body.low),
+      close: body.close === null || body.close === undefined ? null : String(body.close),
+      volume: body.volume === null || body.volume === undefined ? null : String(body.volume),
+      value: body.value === null || body.value === undefined ? null : String(body.value),
+    };
+  }
+
+  private normalizeCreatePayloads(body: unknown): Record<string, unknown>[] {
+    if (!body || typeof body !== 'object') {
+      throw new BadRequestException('Request body must be an object or an array of objects');
+    }
+
+    if (Array.isArray(body)) {
+      if (body.length === 0) {
+        throw new BadRequestException('Request body array cannot be empty');
+      }
+
+      return body.map((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          throw new BadRequestException(`Item at index ${index} must be an object`);
+        }
+
+        return item as Record<string, unknown>;
+      });
+    }
+
+    return [body as Record<string, unknown>];
   }
 
   async findFinancialStatementsBySymbol(symbol: string) {
