@@ -2,8 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { PeriodType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { IncomeStatementsService } from '../income-statements/income-statements.service';
+import { AdminIncomeStatementsQueryDto } from '../income-statements/dto/admin-income-statements-query.dto';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
-import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
 import { CandlesQueryDto } from './dto/candles-query.dto';
 import { TechnicalSeriesQueryDto } from './dto/technical-series-query.dto';
 
@@ -43,6 +44,7 @@ type AnnualIncomeStatementLike = {
 export class StocksService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly incomeStatementsService: IncomeStatementsService,
   ) { }
 
   async findAllSectors() {
@@ -1207,9 +1209,8 @@ export class StocksService {
 
   async findKeyStatisticsBySymbol(
     symbol: string,
-    query: KeyStatisticsQueryDto,
+    query: AdminIncomeStatementsQueryDto,
   ) {
-    const metric = query.metric ?? 'netIncome';
     const listing = await this.prisma.listing.findFirst({
       where: {
         symbol: {
@@ -1217,80 +1218,19 @@ export class StocksService {
           mode: 'insensitive',
         },
       },
-      include: {
-        company: {
-          select: {
-            id: true,
-            legalName: true,
-            displayName: true,
-          },
-        },
-        ajaibStockMarket: {
-          select: {
-            marketCap: true,
-          },
-        },
-        stockPrices: {
-          take: 1,
-          orderBy: {
-            date: 'desc',
-          },
-        },
+      select: {
+        companyId: true,
       },
     });
 
     if (!listing) {
-      return null;
+      return [];
     }
 
-    const companyId = listing.company.id;
-    const [latestSharesData, quarterlyStatements, annualStatements] = await Promise.all([
-      this.prisma.sharesData.findFirst({
-        where: { companyId },
-        orderBy: { date: 'desc' },
-      }),
-      this.prisma.incomeStatement.findMany({
-        where: {
-          companyId,
-          period: {
-            in: [PeriodType.Q1, PeriodType.Q2, PeriodType.Q3, PeriodType.Q4],
-          },
-        },
-        orderBy: [
-          { fiscalYear: 'desc' },
-          { fiscalQuarter: 'desc' },
-        ],
-        take: 12,
-      }),
-      this.prisma.incomeStatement.findMany({
-        where: {
-          companyId,
-          period: PeriodType.ANNUAL,
-        },
-        orderBy: [{ fiscalYear: 'desc' }],
-        take: 6,
-      }),
-    ]);
-
-    const normalizedQuarterly = this.buildQuarterlyStatementsWithDerivedQ4(
-      quarterlyStatements,
-      annualStatements,
+    return this.incomeStatementsService.findAllByCompanyAdmin(
+      listing.companyId,
+      query,
     );
-    const selectedMetric = this.buildQuarterMetricSeries(
-      normalizedQuarterly,
-      metric,
-      latestSharesData?.sharesOutstanding ?? null,
-    );
-
-    return {
-      listing: {
-        id: listing.id,
-        symbol: listing.symbol,
-      },
-      company: listing.company,
-      metric,
-      quarterlyAndProjection: selectedMetric,
-    };
   }
 
   async findKeyStatisticsSummaryBySymbol(symbol: string) {

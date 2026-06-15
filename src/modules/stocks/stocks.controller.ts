@@ -11,7 +11,7 @@ import { FinancialStatementSyncService } from '../../jobs/stock-sync/sync/financ
 import { StockPriceSyncService } from '../../jobs/stock-sync/sync/stock-price-sync.service';
 import { StockPriceQueryDto } from './dto/stock-price-query.dto';
 import { FindStocksQueryDto } from './dto/find-stocks-query.dto';
-import { KeyStatisticsQueryDto } from './dto/key-statistics-query.dto';
+import { AdminIncomeStatementsQueryDto } from '../income-statements/dto/admin-income-statements-query.dto';
 import { SyncFinancialStatementsQueryDto } from './dto/sync-financial-statements-query.dto';
 import { SyncStockPricesQueryDto } from './dto/sync-stock-prices-query.dto';
 import { CandlesQueryDto } from './dto/candles-query.dto';
@@ -184,20 +184,9 @@ export class StocksController {
   @Get('stocks/:symbol/key-statistics')
   async getStockKeyStatistics(
     @Param('symbol') symbol: string,
-    @Query() query: KeyStatisticsQueryDto,
+    @Query() query: AdminIncomeStatementsQueryDto,
   ) {
-    const data = await this.stocksService.findKeyStatisticsBySymbol(
-      symbol,
-      query,
-    );
-
-    if (!data) {
-      throw new NotFoundException(
-        `Stock with symbol ${symbol} not found`,
-      );
-    }
-
-    return data;
+    return this.stocksService.findKeyStatisticsBySymbol(symbol, query);
   }
 
   @Get('stocks/:symbol/key-statistics-summary')

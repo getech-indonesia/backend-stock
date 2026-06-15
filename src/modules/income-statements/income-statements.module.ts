@@ -8,5 +8,6 @@ import { IncomeStatementsService } from './income-statements.service';
   imports: [PrismaModule],
   controllers: [IncomeStatementsController],
   providers: [IncomeStatementsService],
+  exports: [IncomeStatementsService],
 })
-export class IncomeStatementsModule {}
+export class IncomeStatementsModule { }
