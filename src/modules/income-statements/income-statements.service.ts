@@ -1,12 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditStatus, PeriodType, Prisma } from '@prisma/client';
+import axios from 'axios';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminIncomeStatementsQueryDto } from './dto/admin-income-statements-query.dto';
 
 @Injectable()
 export class IncomeStatementsService {
+  private readonly pythonBackendBaseUrl =
+    process.env.PYTHON_BACKEND_BASE_URL ?? 'http://127.0.0.1:5000/api';
+
   constructor(private readonly prisma: PrismaService) { }
+
+  private buildPythonBackendUrl(path: string): string {
+    return new URL(path, `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`).toString();
+  }
 
   async findAllAdmin(query: AdminIncomeStatementsQueryDto) {
     const page = query.page ?? 1;
@@ -797,5 +805,142 @@ export class IncomeStatementsService {
       updatedAt: item.updatedAt.toISOString(),
       company: item.company,
     };
+  }
+
+  async syncFromPythonBackend(body: { listingId?: string; sectorId?: string }) {
+    const { listingId, sectorId } = body;
+
+
+    if (!listingId && !sectorId) {
+      throw new BadRequestException('Either listingId or sectorId must be provided');
+    }
+
+    let listings: { id: string; symbol: string; companyId: string }[] = [];
+
+    if (listingId) {
+      // Get single listing
+      const listing = await this.prisma.listing.findUnique({
+        where: {
+          id: listingId.trim(),
+        },
+        select: {
+          id: true,
+          symbol: true,
+          companyId: true,
+        },
+      });
+
+      if (!listing) {
+        throw new BadRequestException(`No listing found for listingId=${listingId}`);
+      }
+
+      listings = [listing];
+    } else if (sectorId) {
+      // Get all listings in the sector
+      listings = await this.prisma.listing.findMany({
+        where: {
+          company: {
+            industry: {
+              sectorId: sectorId.trim(),
+            },
+          },
+        },
+        select: {
+          id: true,
+          symbol: true,
+          companyId: true,
+        },
+      });
+
+      if (listings.length === 0) {
+        throw new BadRequestException(`No listings found for sectorId=${sectorId}`);
+      }
+    }
+
+    const results: { symbol: string; success: boolean; error?: string }[] = [];
+
+    for (const listing of listings) {
+      try {
+        // Call Python backend with a very long timeout (30 minutes)
+        const endpoint = this.buildPythonBackendUrl('income-statement');
+
+        console.log('[SYNC] Starting sync for', listing.symbol);
+        console.log('[SYNC] Calling Python backend at', endpoint);
+
+        const startTime = Date.now();
+        const response = await axios.get(endpoint, {
+          params: {
+            symbol: listing.symbol,
+          },
+          timeout: 30 * 60 * 1000, // 30 minutes in milliseconds
+        });
+        console.log('[SYNC] Python responded in', (Date.now() - startTime) / 1000, 'seconds');
+        console.log('[SYNC] Response status:', response.data.status);
+
+        if (response.data.status !== 'ok') {
+          results.push({
+            symbol: listing.symbol,
+            success: false,
+            error: `Python backend returned status: ${response.data.status}`,
+          });
+          continue;
+        }
+
+        // Process each income statement item
+        const incomeStatements = response.data.data || [];
+
+        for (const statement of incomeStatements) {
+          const data: Prisma.IncomeStatementUncheckedCreateInput = {
+            companyId: listing.companyId,
+            period: statement.period as PeriodType,
+            fiscalYear: statement.fiscalYear,
+            fiscalQuarter: statement.fiscalQuarter ?? null,
+            periodEndDate: statement.periodEndDate ? new Date(statement.periodEndDate) : null,
+            currency: statement.currency,
+            auditStatus: statement.auditStatus as AuditStatus,
+            revenue: new Prisma.Decimal(statement.revenue),
+            revenueGrowthYoY: statement.revenueGrowthYoY ? new Prisma.Decimal(statement.revenueGrowthYoY) : null,
+            cogs: statement.cogs ? new Prisma.Decimal(Math.abs(statement.cogs)) : null,
+            grossProfit: statement.grossProfit ? new Prisma.Decimal(statement.grossProfit) : null,
+            operatingExpenses: statement.operatingExpenses ? new Prisma.Decimal(Math.abs(statement.operatingExpenses)) : null,
+            sellingExpenses: statement.sellingExpenses ? new Prisma.Decimal(Math.abs(statement.sellingExpenses)) : null,
+            generalAdminExpenses: statement.generalAdminExpenses ? new Prisma.Decimal(Math.abs(statement.generalAdminExpenses)) : null,
+            rdExpenses: statement.rdExpenses ? new Prisma.Decimal(Math.abs(statement.rdExpenses)) : null,
+            depreciationAmort: statement.depreciationAmort ? new Prisma.Decimal(statement.depreciationAmort) : null,
+            ebit: statement.ebit ? new Prisma.Decimal(statement.ebit) : null,
+            ebitda: statement.ebitda ? new Prisma.Decimal(statement.ebitda) : null,
+            operatingIncome: statement.operatingIncome ? new Prisma.Decimal(statement.operatingIncome) : null,
+            interestExpense: statement.interestExpense ? new Prisma.Decimal(Math.abs(statement.interestExpense)) : null,
+            interestIncome: statement.interestIncome ? new Prisma.Decimal(statement.interestIncome) : null,
+            otherNonOperatingIncome: statement.otherNonOperatingIncome ? new Prisma.Decimal(statement.otherNonOperatingIncome) : null,
+            pretaxIncome: statement.pretaxIncome ? new Prisma.Decimal(statement.pretaxIncome) : null,
+            incomeTaxExpense: statement.incomeTaxExpense ? new Prisma.Decimal(Math.abs(statement.incomeTaxExpense)) : null,
+            effectiveTaxRate: statement.effectiveTaxRate ? new Prisma.Decimal(statement.effectiveTaxRate) : null,
+            netIncome: new Prisma.Decimal(statement.netIncome),
+            netIncomeAttributable: statement.netIncomeAttributable ? new Prisma.Decimal(statement.netIncomeAttributable) : null,
+            minorityInterest: statement.minorityInterest ? new Prisma.Decimal(statement.minorityInterest) : null,
+            eps: statement.eps ? new Prisma.Decimal(statement.eps) : null,
+            epsDiluted: statement.epsDiluted ? new Prisma.Decimal(statement.epsDiluted) : null,
+            sharesWeightedAvg: statement.sharesWeightedAvg ? BigInt(statement.sharesWeightedAvg) : null,
+          };
+
+          // Upsert the income statement
+          await this.upsertIncomeStatement({ data });
+        }
+
+        results.push({
+          symbol: listing.symbol,
+          success: true,
+        });
+      } catch (error: any) {
+        results.push({
+          symbol: listing.symbol,
+          success: false,
+          error: error.message || 'Unknown error',
+        });
+      }
+    }
+
+    return results;
   }
 }
