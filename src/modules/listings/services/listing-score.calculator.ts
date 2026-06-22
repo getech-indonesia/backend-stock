@@ -177,7 +177,7 @@ export class ListingScoreCalculator {
     quarterlyStatements: QuarterlyMetricRow[],
     annualStatements: AnnualMetricRow[],
   ) {
-    const annualSeries = this.buildAnnualSeries(quarterlyStatements, annualStatements, 'eps');
+    const annualSeries = this.buildAnnualSeries(quarterlyStatements, annualStatements, 'eps').slice(0, 4);
     const items: G1BreakdownItem[] = [];
 
     for (let i = 0; i < annualSeries.length - 1; i++) {
@@ -540,6 +540,7 @@ export class ListingScoreCalculator {
     return Math.round(value * 100) / 100;
   }
 }
+
 
 
 
