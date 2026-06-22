@@ -1,12 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditStatus, PeriodType, Prisma } from '@prisma/client';
+import axios from 'axios';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminBalanceSheetsQueryDto } from './dto/admin-balance-sheets-query.dto';
 
 @Injectable()
 export class BalanceSheetsService {
+  private readonly pythonBackendBaseUrl =
+    process.env.PYTHON_BACKEND_BASE_URL ?? 'http://127.0.0.1:5000/api';
+
   constructor(private readonly prisma: PrismaService) {}
+
+  private buildPythonBackendUrl(path: string): string {
+    return new URL(path, `${this.pythonBackendBaseUrl.replace(/\/+$|$/, '')}/`).toString();
+  }
 
   async findAllAdmin(query: AdminBalanceSheetsQueryDto) {
     const page = query.page ?? 1;
@@ -214,6 +222,146 @@ export class BalanceSheetsService {
     }
 
     return this.mapBalanceSheet(balanceSheet);
+  }
+
+  async syncFromPythonBackend(body: { listingId?: string; sectorId?: string }) {
+    const { listingId, sectorId } = body;
+
+    if (!listingId && !sectorId) {
+      throw new BadRequestException('Either listingId or sectorId must be provided');
+    }
+
+    let listings: { id: string; symbol: string; companyId: string }[] = [];
+
+    if (listingId) {
+      const listing = await this.prisma.listing.findUnique({
+        where: {
+          id: listingId.trim(),
+        },
+        select: {
+          id: true,
+          symbol: true,
+          companyId: true,
+        },
+      });
+
+      if (!listing) {
+        throw new BadRequestException(`No listing found for listingId=${listingId}`);
+      }
+
+      listings = [listing];
+    } else if (sectorId) {
+      listings = await this.prisma.listing.findMany({
+        where: {
+          company: {
+            industry: {
+              sectorId: sectorId.trim(),
+            },
+          },
+        },
+        select: {
+          id: true,
+          symbol: true,
+          companyId: true,
+        },
+      });
+
+      if (listings.length === 0) {
+        throw new BadRequestException(`No listings found for sectorId=${sectorId}`);
+      }
+    }
+
+    const results: { symbol: string; success: boolean; error?: string }[] = [];
+
+    for (const listing of listings) {
+      try {
+        const endpoint = this.buildPythonBackendUrl('balance-sheet');
+
+        console.log('[SYNC] Starting sync for', listing.symbol);
+        console.log('[SYNC] Calling Python backend at', endpoint);
+
+        const startTime = Date.now();
+        const response = await axios.get(endpoint, {
+          params: {
+            symbol: listing.symbol,
+          },
+          timeout: 30 * 60 * 1000,
+        });
+        console.log('[SYNC] Python responded in', (Date.now() - startTime) / 1000, 'seconds');
+        console.log('[SYNC] Response status:', response.data.status);
+
+        if (response.data.status !== 'ok') {
+          results.push({
+            symbol: listing.symbol,
+            success: false,
+            error: `Python backend returned status: ${response.data.status}`,
+          });
+          continue;
+        }
+
+        const balanceSheets = response.data.data || [];
+
+        for (const sheet of balanceSheets) {
+          const data: Prisma.BalanceSheetUncheckedCreateInput = {
+            companyId: listing.companyId,
+            period: sheet.period as PeriodType,
+            fiscalYear: sheet.fiscalYear,
+            fiscalQuarter: sheet.fiscalQuarter ?? null,
+            periodEndDate: sheet.periodEndDate ? new Date(sheet.periodEndDate) : null,
+            currency: sheet.currency,
+            auditStatus: sheet.auditStatus as AuditStatus,
+            cash: sheet.cash ? new Prisma.Decimal(sheet.cash) : null,
+            shortTermInvestments: sheet.shortTermInvestments ? new Prisma.Decimal(sheet.shortTermInvestments) : null,
+            accountsReceivable: sheet.accountsReceivable ? new Prisma.Decimal(sheet.accountsReceivable) : null,
+            inventory: sheet.inventory ? new Prisma.Decimal(sheet.inventory) : null,
+            otherCurrentAssets: sheet.otherCurrentAssets ? new Prisma.Decimal(sheet.otherCurrentAssets) : null,
+            totalCurrentAssets: sheet.totalCurrentAssets ? new Prisma.Decimal(sheet.totalCurrentAssets) : null,
+            propertyPlantEquipment: sheet.propertyPlantEquipment ? new Prisma.Decimal(sheet.propertyPlantEquipment) : null,
+            intangibleAssets: sheet.intangibleAssets ? new Prisma.Decimal(sheet.intangibleAssets) : null,
+            goodwill: sheet.goodwill ? new Prisma.Decimal(sheet.goodwill) : null,
+            longTermInvestments: sheet.longTermInvestments ? new Prisma.Decimal(sheet.longTermInvestments) : null,
+            otherNonCurrentAssets: sheet.otherNonCurrentAssets ? new Prisma.Decimal(sheet.otherNonCurrentAssets) : null,
+            totalNonCurrentAssets: sheet.totalNonCurrentAssets ? new Prisma.Decimal(sheet.totalNonCurrentAssets) : null,
+            totalAssets: new Prisma.Decimal(sheet.totalAssets),
+            shortTermDebt: sheet.shortTermDebt ? new Prisma.Decimal(sheet.shortTermDebt) : null,
+            accountsPayable: sheet.accountsPayable ? new Prisma.Decimal(sheet.accountsPayable) : null,
+            deferredRevenue: sheet.deferredRevenue ? new Prisma.Decimal(sheet.deferredRevenue) : null,
+            otherCurrentLiabilities: sheet.otherCurrentLiabilities ? new Prisma.Decimal(sheet.otherCurrentLiabilities) : null,
+            totalCurrentLiabilities: sheet.totalCurrentLiabilities ? new Prisma.Decimal(sheet.totalCurrentLiabilities) : null,
+            longTermDebt: sheet.longTermDebt ? new Prisma.Decimal(sheet.longTermDebt) : null,
+            deferredTaxLiabilities: sheet.deferredTaxLiabilities ? new Prisma.Decimal(sheet.deferredTaxLiabilities) : null,
+            otherNonCurrentLiabilities: sheet.otherNonCurrentLiabilities ? new Prisma.Decimal(sheet.otherNonCurrentLiabilities) : null,
+            totalNonCurrentLiabilities: sheet.totalNonCurrentLiabilities ? new Prisma.Decimal(sheet.totalNonCurrentLiabilities) : null,
+            totalLiabilities: sheet.totalLiabilities ? new Prisma.Decimal(sheet.totalLiabilities) : null,
+            commonStock: sheet.commonStock ? new Prisma.Decimal(sheet.commonStock) : null,
+            additionalPaidInCapital: sheet.additionalPaidInCapital ? new Prisma.Decimal(sheet.additionalPaidInCapital) : null,
+            retainedEarnings: sheet.retainedEarnings ? new Prisma.Decimal(sheet.retainedEarnings) : null,
+            treasuryStock: sheet.treasuryStock ? new Prisma.Decimal(sheet.treasuryStock) : null,
+            otherEquity: sheet.otherEquity ? new Prisma.Decimal(sheet.otherEquity) : null,
+            minorityInterestEquity: sheet.minorityInterestEquity ? new Prisma.Decimal(sheet.minorityInterestEquity) : null,
+            totalEquity: new Prisma.Decimal(sheet.totalEquity),
+            bookValuePerShare: sheet.bookValuePerShare ? new Prisma.Decimal(sheet.bookValuePerShare) : null,
+            netDebt: sheet.netDebt ? new Prisma.Decimal(sheet.netDebt) : null,
+            workingCapital: sheet.workingCapital ? new Prisma.Decimal(sheet.workingCapital) : null,
+          };
+
+          await this.upsertBalanceSheet({ data });
+        }
+
+        results.push({
+          symbol: listing.symbol,
+          success: true,
+        });
+      } catch (error: any) {
+        results.push({
+          symbol: listing.symbol,
+          success: false,
+          error: error.message || 'Unknown error',
+        });
+      }
+    }
+
+    return results;
   }
 
   async createAdmin(body: unknown) {

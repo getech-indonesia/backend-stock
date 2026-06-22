@@ -1,11 +1,17 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
 import { AdminBalanceSheetsQueryDto } from './dto/admin-balance-sheets-query.dto';
+import { SyncBalanceSheetsDto } from './dto/sync-balance-sheets.dto';
 import { BalanceSheetsService } from './balance-sheets.service';
 
 @Controller('admin/balance-sheets')
 export class BalanceSheetsController {
   constructor(private readonly balanceSheetsService: BalanceSheetsService) {}
+
+  @Post('sync')
+  async syncBalanceSheets(@Body() body: SyncBalanceSheetsDto) {
+    return this.balanceSheetsService.syncFromPythonBackend(body);
+  }
 
   @Get()
   async getAllBalanceSheets(@Query() query: AdminBalanceSheetsQueryDto) {
