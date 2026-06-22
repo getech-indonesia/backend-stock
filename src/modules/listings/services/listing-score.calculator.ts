@@ -11,6 +11,24 @@ export interface G1BreakdownItem {
   sourcePeriods: string[];
 }
 
+export interface GForwardSourceItem {
+  fiscalYear: number;
+  fiscalQuarter: number;
+  source: 'actual' | 'carry_forward';
+  value: string | null;
+}
+
+export interface GForwardBreakdown {
+  forecastYear: number | null;
+  latestQuarter: number | null;
+  currentTotal: string | null;
+  previousYear: number | null;
+  previousTotal: string | null;
+  growthPct: number | null;
+  formula: string;
+  sourcePeriods: GForwardSourceItem[];
+}
+
 export interface GrowthScoreResult {
   pillar: 'G';
   score: number;
@@ -34,8 +52,56 @@ export interface GrowthScoreResult {
       roePct: number | null;
       formula: string;
     };
+    g3: {
+      name: string;
+      score: number;
+      maxScore: number;
+      rule: string;
+      forecastYear: number | null;
+      latestQuarter: number | null;
+      currentTotal: string | null;
+      previousYear: number | null;
+      previousTotal: string | null;
+      growthPct: number | null;
+      formula: string;
+      sourcePeriods: GForwardSourceItem[];
+    };
+    g4: {
+      name: string;
+      score: number;
+      maxScore: number;
+      rule: string;
+      forecastYear: number | null;
+      latestQuarter: number | null;
+      currentTotal: string | null;
+      previousYear: number | null;
+      previousTotal: string | null;
+      growthPct: number | null;
+      formula: string;
+      sourcePeriods: GForwardSourceItem[];
+    };
   };
 }
+
+type AnnualMetricSeries = {
+  fiscalYear: number;
+  totalValue: number | null;
+  sourcePeriods: string[];
+};
+
+type QuarterlyMetricRow = {
+  fiscalYear: number;
+  fiscalQuarter: number | null;
+  eps: any;
+  revenue: any;
+};
+
+type AnnualMetricRow = {
+  fiscalYear: number;
+  eps: any;
+  revenue: any;
+  netIncome?: any;
+};
 
 @Injectable()
 export class ListingScoreCalculator {
@@ -43,8 +109,8 @@ export class ListingScoreCalculator {
 
   /**
    * Calculate G (Growth) Score for a listing.
-   * G = G1 (EPS YoY consistency) + G2 (ROE)
-   * Max: 30 points (16 + 14)
+   * G = G1 (EPS YoY consistency) + G2 (ROE) + G3 (EPS Growth Expected) + G4 (Revenue Growth Expected)
+   * Max: 100 points (16 + 14 + 40 + 30)
    */
   async calculateGScore(companyId: string): Promise<GrowthScoreResult> {
     const quarterlyIncomeStatements = await this.prisma.incomeStatement.findMany({
@@ -63,7 +129,7 @@ export class ListingScoreCalculator {
         period: 'ANNUAL',
       },
       orderBy: { fiscalYear: 'desc' },
-      take: 4,
+      take: 5,
     });
 
     const balanceSheets = await this.prisma.balanceSheet.findMany({
@@ -77,30 +143,41 @@ export class ListingScoreCalculator {
 
     const g1 = this.calculateG1(quarterlyIncomeStatements, annualIncomeStatements);
     const g2 = this.calculateG2(annualIncomeStatements, balanceSheets);
+    const g3 = this.calculateForwardGrowth(
+      quarterlyIncomeStatements,
+      annualIncomeStatements,
+      'eps',
+      'EPS Growth Expected',
+      40,
+      'EPS TTM = current-year actual quarters + previous-year same quarters for missing quarters. Score: >25% = 40, >15% = 30, >5% = 20, >0% = 9, <=0% = 0.',
+    );
+    const g4 = this.calculateForwardGrowth(
+      quarterlyIncomeStatements,
+      annualIncomeStatements,
+      'revenue',
+      'Revenue Growth Expected',
+      30,
+      'Revenue TTM = current-year actual quarters + previous-year same quarters for missing quarters. Score: >20% = 30, >10% = 23, >3% = 13, >0% = 7, <=0% = 0.',
+    );
 
     return {
       pillar: 'G',
-      score: g1.score + g2.score,
-      maxScore: 30,
+      score: g1.score + g2.score + g3.score + g4.score,
+      maxScore: 100,
       details: {
         g1,
         g2,
+        g3,
+        g4,
       },
     };
   }
 
   private calculateG1(
-    quarterlyStatements: {
-      fiscalYear: number;
-      fiscalQuarter: number | null;
-      eps: any;
-    }[],
-    annualStatements: {
-      fiscalYear: number;
-      eps: any;
-    }[],
+    quarterlyStatements: QuarterlyMetricRow[],
+    annualStatements: AnnualMetricRow[],
   ) {
-    const annualSeries = this.buildAnnualEpsSeries(quarterlyStatements, annualStatements);
+    const annualSeries = this.buildAnnualSeries(quarterlyStatements, annualStatements, 'eps');
     const items: G1BreakdownItem[] = [];
 
     for (let i = 0; i < annualSeries.length - 1; i++) {
@@ -108,19 +185,17 @@ export class ListingScoreCalculator {
       const previous = annualSeries[i + 1];
 
       let growthPct: number | null = null;
-      if (current.totalEPS !== null && previous.totalEPS !== null && previous.totalEPS !== 0) {
-        growthPct = this.round2(
-          ((current.totalEPS - previous.totalEPS) / previous.totalEPS) * 100,
-        );
+      if (current.totalValue !== null && previous.totalValue !== null && previous.totalValue !== 0) {
+        growthPct = this.round2(((current.totalValue - previous.totalValue) / previous.totalValue) * 100);
       }
 
       items.push({
         currentYear: current.fiscalYear,
-        totalEPS: this.toText(current.totalEPS),
+        totalEPS: this.toText(current.totalValue),
         previousYear: previous.fiscalYear,
-        previousTotalEPS: this.toText(previous.totalEPS),
+        previousTotalEPS: this.toText(previous.totalValue),
         growthPct,
-        formula: `(${this.toText(current.totalEPS) ?? 'null'} - ${this.toText(previous.totalEPS) ?? 'null'}) / ${this.toText(previous.totalEPS) ?? 'null'} x 100`,
+        formula: `(${this.toText(current.totalValue) ?? 'null'} - ${this.toText(previous.totalValue) ?? 'null'}) / ${this.toText(previous.totalValue) ?? 'null'} x 100`,
         sourcePeriods: current.sourcePeriods,
       });
     }
@@ -166,7 +241,7 @@ export class ListingScoreCalculator {
   }
 
   private calculateG2(
-    incomeStatements: { fiscalYear: number; netIncome: any }[],
+    incomeStatements: AnnualMetricRow[],
     balanceSheets: { fiscalYear: number; totalEquity: any }[],
   ) {
     const latestIncome = incomeStatements[0] ?? null;
@@ -209,33 +284,170 @@ export class ListingScoreCalculator {
     };
   }
 
-  private buildAnnualEpsSeries(
-    quarterlyStatements: {
-      fiscalYear: number;
-      fiscalQuarter: number | null;
-      eps: any;
-    }[],
-    annualStatements: {
-      fiscalYear: number;
-      eps: any;
-    }[],
-  ) {
-    const yearlyMap = new Map<
-      number,
-      {
-        fiscalYear: number;
-        totalEPS: number | null;
-        sourcePeriods: string[];
-      }
-    >();
+  private calculateForwardGrowth(
+    quarterlyStatements: QuarterlyMetricRow[],
+    annualStatements: AnnualMetricRow[],
+    metric: 'eps' | 'revenue',
+    name: string,
+    maxScore: number,
+    rule: string,
+  ): GForwardBreakdown & { name: string; score: number; maxScore: number; rule: string } {
+    const series = this.buildForwardTtmSeries(quarterlyStatements, annualStatements, metric);
 
-    const grouped = new Map<
-      number,
-      {
-        fiscalQuarter: number;
-        eps: number | null;
-      }[]
-    >();
+    if (!series) {
+      return {
+        name,
+        score: 0,
+        maxScore,
+        rule,
+        forecastYear: null,
+        latestQuarter: null,
+        currentTotal: null,
+        previousYear: null,
+        previousTotal: null,
+        growthPct: null,
+        formula: `(${name} TTM - previous year) / previous year x 100`,
+        sourcePeriods: [],
+      };
+    }
+
+    const { forecastYear, latestQuarter, currentTotal, previousYear, previousTotal, sourcePeriods } = series;
+
+    let growthPct: number | null = null;
+    if (currentTotal !== null && previousTotal !== null && previousTotal !== 0) {
+      growthPct = this.round2(((currentTotal - previousTotal) / previousTotal) * 100);
+    }
+
+    const score = this.scoreForwardGrowth(metric, growthPct);
+
+    return {
+      name,
+      score,
+      maxScore,
+      rule,
+      forecastYear,
+      latestQuarter,
+      currentTotal: this.toText(currentTotal),
+      previousYear,
+      previousTotal: this.toText(previousTotal),
+      growthPct,
+      formula: `${metric.toUpperCase()} TTM ${forecastYear ?? 'null'} = (${this.toText(currentTotal) ?? 'null'} - ${this.toText(previousTotal) ?? 'null'}) / ${this.toText(previousTotal) ?? 'null'} x 100`,
+      sourcePeriods,
+    };
+  }
+
+  private scoreForwardGrowth(metric: 'eps' | 'revenue', growthPct: number | null): number {
+    if (growthPct === null) {
+      return 0;
+    }
+
+    if (metric === 'eps') {
+      if (growthPct > 25) return 40;
+      if (growthPct > 15) return 30;
+      if (growthPct > 5) return 20;
+      if (growthPct > 0) return 9;
+      return 0;
+    }
+
+    if (growthPct > 20) return 30;
+    if (growthPct > 10) return 23;
+    if (growthPct > 3) return 13;
+    if (growthPct > 0) return 7;
+    return 0;
+  }
+
+  private buildForwardTtmSeries(
+    quarterlyStatements: QuarterlyMetricRow[],
+    annualStatements: AnnualMetricRow[],
+    metric: 'eps' | 'revenue',
+  ) {
+    const grouped = new Map<number, Map<number, QuarterlyMetricRow>>();
+
+    for (const statement of quarterlyStatements) {
+      if (!statement.fiscalQuarter) {
+        continue;
+      }
+
+      const yearMap = grouped.get(statement.fiscalYear) ?? new Map<number, QuarterlyMetricRow>();
+      yearMap.set(statement.fiscalQuarter, statement);
+      grouped.set(statement.fiscalYear, yearMap);
+    }
+
+    if (grouped.size === 0) {
+      return null;
+    }
+
+    const latestYear = Math.max(...Array.from(grouped.keys()));
+    const currentYearRows = grouped.get(latestYear);
+    if (!currentYearRows || currentYearRows.size === 0) {
+      return null;
+    }
+
+    const latestQuarter = Math.max(...Array.from(currentYearRows.keys()));
+    const previousYear = latestYear - 1;
+    const previousYearRows = grouped.get(previousYear);
+
+    if (!previousYearRows || previousYearRows.size === 0) {
+      return null;
+    }
+
+    const currentSources: GForwardSourceItem[] = [];
+    let currentTotal = 0;
+
+    for (let quarter = 1; quarter <= latestQuarter; quarter++) {
+      const row = currentYearRows.get(quarter);
+      const value = row ? this.toNumber(metric === 'eps' ? row.eps : row.revenue) : null;
+      if (value === null) {
+        return null;
+      }
+
+      currentTotal += value;
+      currentSources.push({
+        fiscalYear: latestYear,
+        fiscalQuarter: quarter,
+        source: 'actual',
+        value: this.toText(value),
+      });
+    }
+
+    for (let quarter = latestQuarter + 1; quarter <= 4; quarter++) {
+      const carryRow = previousYearRows.get(quarter);
+      const carryValue = carryRow ? this.toNumber(metric === 'eps' ? carryRow.eps : carryRow.revenue) : null;
+      if (carryValue === null) {
+        return null;
+      }
+
+      currentTotal += carryValue;
+      currentSources.push({
+        fiscalYear: latestYear,
+        fiscalQuarter: quarter,
+        source: 'carry_forward',
+        value: this.toText(carryValue),
+      });
+    }
+
+    const previousTotal = this.getAnnualMetricValue(previousYear, metric, quarterlyStatements, annualStatements);
+    if (previousTotal === null) {
+      return null;
+    }
+
+    return {
+      forecastYear: latestYear,
+      latestQuarter,
+      currentTotal,
+      previousYear,
+      previousTotal,
+      sourcePeriods: currentSources,
+    };
+  }
+
+  private buildAnnualSeries(
+    quarterlyStatements: QuarterlyMetricRow[],
+    annualStatements: AnnualMetricRow[],
+    metric: 'eps' | 'revenue',
+  ): AnnualMetricSeries[] {
+    const yearlyMap = new Map<number, AnnualMetricSeries>();
+    const grouped = new Map<number, { fiscalQuarter: number; value: number | null }[]>();
 
     for (const statement of quarterlyStatements) {
       if (!statement.fiscalQuarter) {
@@ -245,7 +457,7 @@ export class ListingScoreCalculator {
       const bucket = grouped.get(statement.fiscalYear) ?? [];
       bucket.push({
         fiscalQuarter: statement.fiscalQuarter,
-        eps: this.toNumber(statement.eps),
+        value: this.toNumber(metric === 'eps' ? statement.eps : statement.revenue),
       });
       grouped.set(statement.fiscalYear, bucket);
     }
@@ -256,15 +468,14 @@ export class ListingScoreCalculator {
       }
 
       const sortedRows = rows.slice().sort((a, b) => a.fiscalQuarter - b.fiscalQuarter);
-      const epsValues = sortedRows.map((row) => row.eps);
-
-      if (epsValues.some((value) => value === null)) {
+      const values = sortedRows.map((row) => row.value);
+      if (values.some((value) => value === null)) {
         continue;
       }
 
       yearlyMap.set(fiscalYear, {
         fiscalYear,
-        totalEPS: epsValues.reduce<number>((sum, value) => sum + (value ?? 0), 0),
+        totalValue: values.reduce<number>((sum, value) => sum + (value ?? 0), 0),
         sourcePeriods: ['Q1', 'Q2', 'Q3', 'Q4'],
       });
     }
@@ -274,21 +485,43 @@ export class ListingScoreCalculator {
         continue;
       }
 
-      const totalEPS = this.toNumber(statement.eps);
-      if (totalEPS === null) {
+      const totalValue = this.toNumber(metric === 'eps' ? statement.eps : statement.revenue);
+      if (totalValue === null) {
         continue;
       }
 
       yearlyMap.set(statement.fiscalYear, {
         fiscalYear: statement.fiscalYear,
-        totalEPS,
+        totalValue,
         sourcePeriods: ['ANNUAL'],
       });
     }
 
-    return Array.from(yearlyMap.values())
-      .sort((a, b) => b.fiscalYear - a.fiscalYear)
-      .slice(0, 4);
+    return Array.from(yearlyMap.values()).sort((a, b) => b.fiscalYear - a.fiscalYear);
+  }
+
+  private getAnnualMetricValue(
+    fiscalYear: number,
+    metric: 'eps' | 'revenue',
+    quarterlyStatements: QuarterlyMetricRow[],
+    annualStatements: AnnualMetricRow[],
+  ): number | null {
+    const annualStatement = annualStatements.find((statement) => statement.fiscalYear === fiscalYear);
+    const annualValue = annualStatement ? this.toNumber(metric === 'eps' ? annualStatement.eps : annualStatement.revenue) : null;
+    if (annualValue !== null) {
+      return annualValue;
+    }
+
+    const quarterValues = quarterlyStatements
+      .filter((statement) => statement.fiscalYear === fiscalYear && statement.fiscalQuarter)
+      .sort((a, b) => (a.fiscalQuarter ?? 0) - (b.fiscalQuarter ?? 0))
+      .map((statement) => this.toNumber(metric === 'eps' ? statement.eps : statement.revenue));
+
+    if (quarterValues.length !== 4 || quarterValues.some((value) => value === null)) {
+      return null;
+    }
+
+    return quarterValues.reduce<number>((sum, value) => sum + (value ?? 0), 0);
   }
 
   private toNumber(value: any): number | null {
@@ -307,4 +540,8 @@ export class ListingScoreCalculator {
     return Math.round(value * 100) / 100;
   }
 }
+
+
+
+
 
