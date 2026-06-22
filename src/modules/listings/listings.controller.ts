@@ -1,11 +1,17 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
 import { AdminListingsQueryDto } from './dto/admin-listings-query.dto';
+import { ListingScoreQueryDto } from './dto/listing-score-query.dto';
 import { ListingsService } from './listings.service';
 
 @Controller('admin/listings')
 export class ListingsController {
   constructor(private readonly listingsService: ListingsService) {}
+
+  @Get('scores')
+  async getListingScores(@Query() query: ListingScoreQueryDto) {
+    return this.listingsService.getListingScores(query);
+  }
 
   @Get()
   async getAllListings(@Query() query: AdminListingsQueryDto) {

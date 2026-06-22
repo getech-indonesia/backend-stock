@@ -15,6 +15,7 @@ import { IncomeStatementsModule } from './modules/income-statements/income-state
 import { ListingsModule } from './modules/listings/listings.module';
 import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
+import { GroveFormulasModule } from './modules/grove-formulas/grove-formulas.module';
 
 function isEnabled(value: string | undefined, defaultValue = true): boolean {
   if (value == null) {
@@ -55,6 +56,7 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
       CashFlowStatementsModule,
       IncomeStatementsModule,
       ListingsModule,
+      GroveFormulasModule,
       StocksModule,
     ];
   })(),

@@ -117,6 +117,68 @@ enum PubExDocumentType {
     ANNUAL_REPORT
 }
 
+enum HorizonType {
+  LONG
+  MEDIUM
+  SHORT
+}
+
+// ============================================================
+// GROVE RULE
+// ============================================================
+
+model GroveFormula {
+  id          String   @id @default(uuid())
+  code        String   @unique // GROVE_V2
+  description String?
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  horizons    GroveHorizon[]
+  rules       GroveRule[]
+  @@map("grove_formulas")
+}
+
+model GroveHorizon {
+  id          String @id @default(uuid())
+
+  formulaId   String
+
+  horizon     HorizonType
+
+  weightG     Decimal @db.Decimal(5,2)
+  weightR     Decimal @db.Decimal(5,2)
+  weightO     Decimal @db.Decimal(5,2)
+  weightV     Decimal @db.Decimal(5,2)
+  weightE     Decimal @db.Decimal(5,2)
+
+  formula     GroveFormula @relation(fields: [formulaId], references: [id])
+  @@unique([formulaId, horizon])
+  @@map("grove_horizons")
+}
+
+model GroveRule {
+  id          String @id @default(uuid())
+
+  formulaId   String
+
+  pillar      String // G,R,O,V,E
+  metric      String // G3
+
+  score       Decimal @db.Decimal(10,2)
+  description String?
+
+  createdAt   DateTime @default(now())
+
+  formula     GroveFormula @relation(fields: [formulaId], references: [id])
+  @@map("grove_rules")
+  @@index([metric])
+}
+
+
+
 // ============================================================
 // USER
 // ============================================================
