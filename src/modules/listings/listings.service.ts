@@ -384,11 +384,9 @@ export class ListingsService {
     };
   }
   private getStance(score: number): string {
-    if (score >= 70) return 'Strong Buy';
-    if (score >= 50) return 'Buy';
-    if (score >= 30) return 'Hold';
-    if (score >= 10) return 'Underperform';
-    return 'Sell';
+    if (score >= 70) return 'Overweight';
+    if (score >= 55) return 'Neutral';
+    return 'Underweight';
   }
 
   private async updateListingById(
@@ -652,6 +650,7 @@ export class ListingsService {
     };
   }
 }
+
 
 
 
