@@ -235,7 +235,7 @@ export class ListingsService {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
-    const keyword = query.keyword?.trim();
+    const keyword = query.keyword?.trim() ?? query.q?.trim();
 
     const filters: Prisma.ListingWhereInput[] = [];
 
@@ -248,12 +248,22 @@ export class ListingsService {
               mode: 'insensitive',
             },
           },
-          {
+                    {
             company: {
-              displayName: {
-                contains: keyword,
-                mode: 'insensitive',
-              },
+              OR: [
+                {
+                  displayName: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  legalName: {
+                    contains: keyword,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
             },
           },
         ],
@@ -642,6 +652,7 @@ export class ListingsService {
     };
   }
 }
+
 
 
 

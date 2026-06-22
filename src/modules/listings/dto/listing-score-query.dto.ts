@@ -1,4 +1,4 @@
-import { Transform, Type } from 'class-transformer';
+﻿import { Transform, Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListingScoreQueryDto {
@@ -14,6 +14,11 @@ export class ListingScoreQueryDto {
   @Min(1)
   @Max(100)
   pageSize?: number = 20;
+
+  @IsOptional()
+  @IsString()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  q?: string;
 
   @IsOptional()
   @IsString()
