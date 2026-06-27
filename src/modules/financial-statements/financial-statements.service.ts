@@ -1,4 +1,4 @@
-﻿import { Injectable, Logger, InternalServerErrorException, BadGatewayException } from '@nestjs/common';
+import { Injectable, Logger, InternalServerErrorException, BadGatewayException } from '@nestjs/common';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import axios, { AxiosError } from 'axios';
@@ -49,6 +49,10 @@ export class FinancialStatementsService {
     return new URL(path, `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`).toString();
   }
 
+  private resolvePythonExtractionPath(filename: string): string {
+    return filename.toLowerCase().endsWith('.pdf') ? 'extract-financial-report' : 'extract-xbrl';
+  }
+
   private async createSignedFileUrl(key: string): Promise<string> {
     if (!this.s3Client || !process.env.S3_BUCKET_NAME) {
       throw new InternalServerErrorException('S3 client is not configured.');
@@ -96,9 +100,10 @@ export class FinancialStatementsService {
     }
 
     const signedUrl = await this.createSignedFileUrl(key);
-    this.logger.log(`ZIP upload succeeded. Signed URL expires in 30 minutes: ${signedUrl}`);
+    const triggerPath = this.resolvePythonExtractionPath(file.originalname);
+    this.logger.log(`File upload succeeded. Signed URL expires in 30 minutes: ${signedUrl}`);
 
-    const triggerUrl = this.buildPythonBackendUrl('extract-xbrl');
+    const triggerUrl = this.buildPythonBackendUrl(triggerPath);
     this.logger.log(`Triggering Python extraction endpoint at: ${triggerUrl}`);
 
     try {
@@ -113,13 +118,16 @@ export class FinancialStatementsService {
           headers: {
             'Content-Type': 'application/json',
           },
-          timeout: 60000,
+          timeout: 1800000,
         },
       );
 
       this.logger.log(`Python backend response status: ${response.status}`);
       return {
-        message: 'XBRL file uploaded and extraction triggered successfully',
+        message:
+          triggerPath === 'extract-financial-report'
+            ? 'PDF file uploaded and extraction triggered successfully'
+            : 'XBRL file uploaded and extraction triggered successfully',
         signedUrl,
         pythonResponse: response.data,
       };
@@ -134,7 +142,10 @@ export class FinancialStatementsService {
       );
 
       throw new BadGatewayException({
-        message: 'XBRL uploaded successfully, but triggering Python backend failed.',
+        message:
+          triggerPath === 'extract-financial-report'
+            ? 'PDF uploaded successfully, but triggering Python backend failed.'
+            : 'XBRL uploaded successfully, but triggering Python backend failed.',
         signedUrl,
         error: responseData || axiosError.message,
       });
