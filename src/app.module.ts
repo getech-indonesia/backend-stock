@@ -16,6 +16,7 @@ import { ListingsModule } from './modules/listings/listings.module';
 import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
 import { GroveFormulasModule } from './modules/grove-formulas/grove-formulas.module';
+import { FinancialStatementsModule } from './modules/financial-statements/financial-statements.module';
 
 function isEnabled(value: string | undefined, defaultValue = true): boolean {
   if (value == null) {
@@ -58,6 +59,7 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
       ListingsModule,
       GroveFormulasModule,
       StocksModule,
+      FinancialStatementsModule,
     ];
   })(),
 })
