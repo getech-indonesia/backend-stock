@@ -2,6 +2,8 @@ import { Injectable, Logger, InternalServerErrorException, BadGatewayException }
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import axios, { AxiosError } from 'axios';
+import { PrismaService } from '../../prisma/prisma.service';
+import { DeAccumulateFinancialStatementsDto } from './dto/de-accumulate-financial-statements.dto';
 
 @Injectable()
 export class FinancialStatementsService {
@@ -11,7 +13,7 @@ export class FinancialStatementsService {
   private readonly pythonBackendBaseUrl =
     process.env.PYTHON_BACKEND_BASE_URL ?? 'http://127.0.0.1:5000/api';
 
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     this.initS3Client();
   }
 
@@ -150,5 +152,132 @@ export class FinancialStatementsService {
         error: responseData || axiosError.message,
       });
     }
+  }
+
+  async deAccumulateStatements(body: DeAccumulateFinancialStatementsDto) {
+    const EXCLUDED_KEYS = new Set([
+      'id',
+      'companyId',
+      'period',
+      'fiscalYear',
+      'fiscalQuarter',
+      'periodEndDate',
+      'currency',
+      'auditStatus',
+      'createdAt',
+      'updatedAt',
+      'eps',
+      'epsDiluted',
+      'sharesWeightedAvg',
+      'effectiveTaxRate',
+      'revenueGrowthYoY',
+      'bookValuePerShare',
+    ]);
+
+    const result: any = {};
+
+    const modelMapping: Record<string, string> = {
+      incomeStatement: 'incomeStatement',
+      balanceSheet: 'balanceSheet',
+      cashFlow: 'cashFlowStatement',
+    };
+
+    for (const [key, item] of Object.entries(body)) {
+      if (!item) {
+        result[key] = null;
+        continue;
+      }
+
+      const modelName = modelMapping[key];
+      if (!modelName) {
+        result[key] = item;
+        continue;
+      }
+
+      const companyId = item.companyId;
+      const fiscalYear = item.fiscalYear;
+      let fiscalQuarter = item.fiscalQuarter;
+      let period = item.period;
+
+      if (!companyId || !fiscalYear) {
+        result[key] = item;
+        continue;
+      }
+
+      if (!fiscalQuarter && period) {
+        const match = period.match(/^Q(\d)$/i);
+        if (match) {
+          fiscalQuarter = parseInt(match[1], 10);
+        }
+      }
+
+      if (fiscalQuarter && !period) {
+        period = `Q${fiscalQuarter}`;
+      }
+
+      if (typeof fiscalQuarter !== 'number' || fiscalQuarter <= 1) {
+        result[key] = item;
+        continue;
+      }
+
+      const prevQuarter = fiscalQuarter - 1;
+      const prevPeriod = `Q${prevQuarter}`;
+
+      const previousStatement = await (this.prisma[modelName] as any).findFirst({
+        where: {
+          companyId,
+          fiscalYear,
+          fiscalQuarter: prevQuarter,
+          period: prevPeriod,
+        },
+      });
+
+      if (!previousStatement) {
+        result[key] = item;
+        continue;
+      }
+
+      const adjustedItem: any = {};
+      for (const [fieldKey, reqVal] of Object.entries(item)) {
+        if (EXCLUDED_KEYS.has(fieldKey)) {
+          adjustedItem[fieldKey] = reqVal;
+          continue;
+        }
+
+        if (reqVal === null || reqVal === undefined) {
+          adjustedItem[fieldKey] = null;
+          continue;
+        }
+
+        if (typeof reqVal !== 'number') {
+          adjustedItem[fieldKey] = reqVal;
+          continue;
+        }
+
+        const dbVal = previousStatement[fieldKey];
+        let numericDbVal = 0;
+
+        if (dbVal !== null && dbVal !== undefined) {
+          if (typeof dbVal === 'number') {
+            numericDbVal = dbVal;
+          } else if (typeof dbVal === 'object' && typeof dbVal.toNumber === 'function') {
+            numericDbVal = dbVal.toNumber();
+          } else if (typeof dbVal === 'bigint') {
+            numericDbVal = Number(dbVal);
+          } else {
+            const parsed = parseFloat(dbVal);
+            if (!isNaN(parsed)) {
+              numericDbVal = parsed;
+            }
+          }
+        }
+
+        adjustedItem[fieldKey] = reqVal - numericDbVal;
+      }
+
+      result[key] = adjustedItem;
+    }
+
+    return result;
   }
 }
