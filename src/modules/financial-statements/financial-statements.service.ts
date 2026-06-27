@@ -52,7 +52,7 @@ export class FinancialStatementsService {
   }
 
   private resolvePythonExtractionPath(filename: string): string {
-    return filename.toLowerCase().endsWith('.pdf') ? 'extract-financial-report' : 'extract-xbrl';
+    return filename.toLowerCase().endsWith('.zip') ? 'extract-xbrl' : 'extract-financial-report';
   }
 
   private async createSignedFileUrl(key: string): Promise<string> {
@@ -125,10 +125,11 @@ export class FinancialStatementsService {
       );
 
       this.logger.log(`Python backend response status: ${response.status}`);
+      const fileType = file.originalname.toLowerCase().endsWith('.pdf') ? 'PDF' : 'XLSX';
       return {
         message:
           triggerPath === 'extract-financial-report'
-            ? 'PDF file uploaded and extraction triggered successfully'
+            ? `${fileType} file uploaded and extraction triggered successfully`
             : 'XBRL file uploaded and extraction triggered successfully',
         signedUrl,
         pythonResponse: response.data,

@@ -43,9 +43,22 @@ export class FinancialStatementsController {
 
     const isZip = extension === 'zip' || zipMimeTypes.includes(mimeType);
     const isPdf = extension === 'pdf' || mimeType === 'application/pdf';
+    
+    const xlsxMimeTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/msexcel',
+      'application/x-msexcel',
+      'application/x-ms-excel',
+      'application/x-excel',
+      'application/x-dos_ms_excel',
+      'application/xls',
+      'application/x-xls',
+    ];
+    const isXlsx = extension === 'xlsx' || extension === 'xls' || xlsxMimeTypes.includes(mimeType);
 
-    if (!isZip && !isPdf) {
-      throw new BadRequestException('Only ZIP and PDF files are allowed');
+    if (!isZip && !isPdf && !isXlsx) {
+      throw new BadRequestException('Only ZIP, PDF, and Excel (XLSX/XLS) files are allowed');
     }
   }
 }
