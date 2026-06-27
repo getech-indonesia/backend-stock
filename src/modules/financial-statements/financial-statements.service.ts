@@ -167,12 +167,6 @@ export class FinancialStatementsService {
       'auditStatus',
       'createdAt',
       'updatedAt',
-      'eps',
-      'epsDiluted',
-      'sharesWeightedAvg',
-      'effectiveTaxRate',
-      'revenueGrowthYoY',
-      'bookValuePerShare',
     ]);
 
     const result: any = {};

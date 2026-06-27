@@ -52,7 +52,7 @@ describe('FinancialStatementsService', () => {
           fiscalQuarter: 2,
           period: 'Q2',
           revenue: 100,
-          eps: 1.5, // should not be de-accumulated
+          eps: 1.5,
           netIncome: 50,
           currency: 'IDR', // should not be de-accumulated
         },
@@ -84,7 +84,7 @@ describe('FinancialStatementsService', () => {
 
       expect(result.incomeStatement.revenue).toBe(60); // 100 - 40
       expect(result.incomeStatement.netIncome).toBe(30); // 50 - 20
-      expect(result.incomeStatement.eps).toBe(1.5); // unchanged
+      expect(result.incomeStatement.eps).toBe(0.7); // 1.5 - 0.8
       expect(result.incomeStatement.currency).toBe('IDR'); // unchanged
     });
 
