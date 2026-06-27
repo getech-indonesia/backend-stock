@@ -208,6 +208,8 @@ export class FinancialStatementsService {
         const match = period.match(/^Q(\d)$/i);
         if (match) {
           fiscalQuarter = parseInt(match[1], 10);
+        } else if (period.toUpperCase() === 'ANNUAL' || period.toUpperCase() === 'FY') {
+          fiscalQuarter = 4;
         }
       }
 
