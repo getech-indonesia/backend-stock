@@ -1,5 +1,6 @@
-import { Injectable, Logger, InternalServerErrorException, BadGatewayException } from '@nestjs/common';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+﻿import { Injectable, Logger, InternalServerErrorException, BadGatewayException } from '@nestjs/common';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import axios, { AxiosError } from 'axios';
 
 @Injectable()
@@ -48,6 +49,21 @@ export class FinancialStatementsService {
     return new URL(path, `${this.pythonBackendBaseUrl.replace(/\/+$/, '')}/`).toString();
   }
 
+  private async createSignedFileUrl(key: string): Promise<string> {
+    if (!this.s3Client || !process.env.S3_BUCKET_NAME) {
+      throw new InternalServerErrorException('S3 client is not configured.');
+    }
+
+    return getSignedUrl(
+      this.s3Client,
+      new GetObjectCommand({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: key,
+      }),
+      { expiresIn: 60 * 30 },
+    );
+  }
+
   async uploadXbrl(file: Express.Multer.File) {
     const bucket = process.env.S3_BUCKET_NAME;
     const endpoint = process.env.S3_ENDPOINT_URL;
@@ -79,11 +95,9 @@ export class FinancialStatementsService {
       throw new InternalServerErrorException(`Failed to upload file to storage: ${error.message}`);
     }
 
-    // Construct the public S3 URL
-    const s3Url = `${endpoint.replace(/\/+$/, '')}/${bucket}/${key}`;
-    this.logger.log(`Constructed S3 URL: ${s3Url}`);
+    const signedUrl = await this.createSignedFileUrl(key);
+    this.logger.log(`ZIP upload succeeded. Signed URL expires in 30 minutes: ${signedUrl}`);
 
-    // Trigger Python extraction endpoint
     const triggerUrl = this.buildPythonBackendUrl('extract-xbrl');
     this.logger.log(`Triggering Python extraction endpoint at: ${triggerUrl}`);
 
@@ -91,29 +105,29 @@ export class FinancialStatementsService {
       const response = await axios.post(
         triggerUrl,
         {
-          url: s3Url,
-          s3_url: s3Url,
-          file_url: s3Url,
+          url: signedUrl,
+          s3_url: signedUrl,
+          file_url: signedUrl,
         },
         {
           headers: {
             'Content-Type': 'application/json',
           },
-          timeout: 60000, // 60s timeout for extraction initiation
+          timeout: 60000,
         },
       );
 
       this.logger.log(`Python backend response status: ${response.status}`);
       return {
         message: 'XBRL file uploaded and extraction triggered successfully',
-        s3Url,
+        signedUrl,
         pythonResponse: response.data,
       };
     } catch (error) {
       const axiosError = error as AxiosError;
       const status = axiosError.response?.status;
       const responseData = axiosError.response?.data;
-      
+
       this.logger.error(
         `Failed to trigger Python extraction. status=${status ?? 'N/A'}, response=${JSON.stringify(responseData) ?? 'N/A'}`,
         error,
@@ -121,7 +135,7 @@ export class FinancialStatementsService {
 
       throw new BadGatewayException({
         message: 'XBRL uploaded successfully, but triggering Python backend failed.',
-        s3Url,
+        signedUrl,
         error: responseData || axiosError.message,
       });
     }
