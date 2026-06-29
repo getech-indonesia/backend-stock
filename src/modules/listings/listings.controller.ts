@@ -1,10 +1,12 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { AdminListingsQueryDto } from './dto/admin-listings-query.dto';
 import { ListingScoreQueryDto } from './dto/listing-score-query.dto';
 import { ListingsService } from './listings.service';
 
 @Controller('admin/listings')
+@AdminAuth()
 export class ListingsController {
   constructor(private readonly listingsService: ListingsService) {}
 

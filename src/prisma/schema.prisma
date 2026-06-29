@@ -14,6 +14,8 @@ datasource db {
 enum Role {
     USER
     ADMIN
+    DEVELOPER
+    MEMBER
 }
 
 enum AssetType {
@@ -118,9 +120,9 @@ enum PubExDocumentType {
 }
 
 enum HorizonType {
-  LONG
-  MEDIUM
-  SHORT
+    LONG
+    MEDIUM
+    SHORT
 }
 
 // ============================================================
@@ -128,56 +130,57 @@ enum HorizonType {
 // ============================================================
 
 model GroveFormula {
-  id          String   @id @default(uuid())
-  code        String   @unique // GROVE_V2
-  description String?
-  isActive    Boolean  @default(true)
+    id          String  @id @default(uuid())
+    code        String  @unique // GROVE_V2
+    description String?
+    isActive    Boolean @default(true)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 
-  horizons    GroveHorizon[]
-  rules       GroveRule[]
-  @@map("grove_formulas")
+    horizons GroveHorizon[]
+    rules    GroveRule[]
+
+    @@map("grove_formulas")
 }
 
 model GroveHorizon {
-  id          String @id @default(uuid())
+    id String @id @default(uuid())
 
-  formulaId   String
+    formulaId String
 
-  horizon     HorizonType
+    horizon HorizonType
 
-  weightG     Decimal @db.Decimal(5,2)
-  weightR     Decimal @db.Decimal(5,2)
-  weightO     Decimal @db.Decimal(5,2)
-  weightV     Decimal @db.Decimal(5,2)
-  weightE     Decimal @db.Decimal(5,2)
+    weightG Decimal @db.Decimal(5, 2)
+    weightR Decimal @db.Decimal(5, 2)
+    weightO Decimal @db.Decimal(5, 2)
+    weightV Decimal @db.Decimal(5, 2)
+    weightE Decimal @db.Decimal(5, 2)
 
-  formula     GroveFormula @relation(fields: [formulaId], references: [id])
-  @@unique([formulaId, horizon])
-  @@map("grove_horizons")
+    formula GroveFormula @relation(fields: [formulaId], references: [id])
+
+    @@unique([formulaId, horizon])
+    @@map("grove_horizons")
 }
 
 model GroveRule {
-  id          String @id @default(uuid())
+    id String @id @default(uuid())
 
-  formulaId   String
+    formulaId String
 
-  pillar      String // G,R,O,V,E
-  metric      String // G3
+    pillar String // G,R,O,V,E
+    metric String // G3
 
-  score       Decimal @db.Decimal(10,2)
-  description String?
+    score       Decimal @db.Decimal(10, 2)
+    description String?
 
-  createdAt   DateTime @default(now())
+    createdAt DateTime @default(now())
 
-  formula     GroveFormula @relation(fields: [formulaId], references: [id])
-  @@map("grove_rules")
-  @@index([metric])
+    formula GroveFormula @relation(fields: [formulaId], references: [id])
+
+    @@index([metric])
+    @@map("grove_rules")
 }
-
-
 
 // ============================================================
 // USER

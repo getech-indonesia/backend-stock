@@ -8,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { FinancialStatementSyncService } from '../../jobs/stock-sync/sync/financial-statement-sync.service';
 import { StockPriceSyncService } from '../../jobs/stock-sync/sync/stock-price-sync.service';
 import { StockPriceQueryDto } from './dto/stock-price-query.dto';
@@ -40,6 +41,7 @@ export class StocksController {
   }
 
   @Get('admin/sectors')
+  @AdminAuth()
   async getAdminSectors() {
     return this.stocksService.findAllSectors();
   }
@@ -63,6 +65,7 @@ export class StocksController {
   }
 
   @Get('admin/stocks/:symbol/stock-price')
+  @AdminAuth()
   async getAdminStockPrice(
     @Param('symbol') symbol: string,
     @Query() query: CandlesQueryDto,
@@ -206,6 +209,7 @@ export class StocksController {
   }
 
   @Post('stocks/financial-statements/sync')
+  @AdminAuth()
   async syncFinancialStatements(
     @Query() query: SyncFinancialStatementsQueryDto,
   ) {
@@ -214,6 +218,7 @@ export class StocksController {
   }
 
   @Post('admin/stock-prices/sync')
+  @AdminAuth()
   async syncStockPrices(
     @Query() query: SyncStockPricesQueryDto,
   ) {
@@ -221,6 +226,7 @@ export class StocksController {
   }
 
   @Post('admin/stock-prices/upsert')
+  @AdminAuth()
   async upsertAdminStockPrices(@Body() body: unknown) {
     return this.stocksService.upsertAdminStockPrices(body);
   }

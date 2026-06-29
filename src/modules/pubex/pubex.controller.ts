@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { UploadSinglePubExDto } from './dto/upload-single-pubex.dto';
 import { PubExService } from './pubex.service';
 
@@ -18,6 +19,7 @@ export class PubExController {
   constructor(private readonly pubExService: PubExService) {}
 
   @Post('upload/single')
+  @AdminAuth()
   @UseInterceptors(FileInterceptor('file'))
   async uploadSingle(
     @UploadedFile() file: Express.Multer.File,
@@ -30,6 +32,7 @@ export class PubExController {
   }
 
   @Post('upload/bulk')
+  @AdminAuth()
   @UseInterceptors(FilesInterceptor('files', 50))
   async uploadBulk(@UploadedFiles() files: Express.Multer.File[]) {
     if (!files || files.length === 0) {

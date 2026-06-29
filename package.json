@@ -24,6 +24,7 @@
     "prisma:generate": "prisma generate --config src/prisma/prisma.config.ts",
     "prisma:migrate": "prisma migrate dev --config src/prisma/prisma.config.ts",
     "prisma:studio": "prisma studio --config src/prisma/prisma.config.ts",
+    "prisma:seed": "ts-node src/prisma/seed.ts",
     "prisma:push": "prisma db push --config src/prisma/prisma.config.ts",
     "stock:sync:id": "nest start --entryFile jobs/stock-sync/entrypoints/stock-sync-id",
     "stock:sync:price:id": "ts-node src/jobs/stock-sync/entrypoints/stock-sync-price-id.ts",
@@ -34,6 +35,9 @@
     "stock:test:ajaib": "ts-node test-ajaib-scrape.ts",
     "stock:sync:us": "nest start --entryFile stock-sync-us",
     "stock:sync:global": "nest start --entryFile stock-sync-global"
+  },
+  "prisma": {
+    "seed": "npm run prisma:seed"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",

@@ -1,8 +1,11 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
+
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { GroveFormulasService } from './grove-formulas.service';
 import { AdminGroveFormulasQueryDto } from './dto/admin-grove-formulas-query.dto';
 
 @Controller('admin/grove-formulas')
+@AdminAuth()
 export class GroveFormulasController {
   constructor(private readonly service: GroveFormulasService) {}
 

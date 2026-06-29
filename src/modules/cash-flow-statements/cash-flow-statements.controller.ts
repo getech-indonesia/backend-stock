@@ -1,9 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { AdminCashFlowStatementsQueryDto } from './dto/admin-cash-flow-statements-query.dto';
 import { CashFlowStatementsService } from './cash-flow-statements.service';
 
 @Controller('admin/cash-flow-statements')
+@AdminAuth()
 export class CashFlowStatementsController {
   constructor(private readonly cashFlowStatementsService: CashFlowStatementsService) {}
 

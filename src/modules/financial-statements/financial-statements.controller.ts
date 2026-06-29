@@ -7,10 +7,13 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { FinancialStatementsService } from './financial-statements.service';
 import { DeAccumulateFinancialStatementsDto } from './dto/de-accumulate-financial-statements.dto';
 
 @Controller('admin/financial-statements')
+@AdminAuth()
 export class FinancialStatementsController {
   constructor(private readonly financialStatementsService: FinancialStatementsService) { }
 

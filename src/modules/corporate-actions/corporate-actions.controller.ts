@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Query } from '@nestjs/common';
 
+import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { CorporateActionSyncService } from '../../jobs/stock-sync/sync/corporate-action-sync.service';
 import { CorporateActionsService } from './corporate-actions.service';
 import { FindCorporateActionsQueryDto } from './dto/find-corporate-actions-query.dto';
@@ -17,6 +18,7 @@ export class CorporateActionsController {
   }
 
   @Post('sync')
+  @AdminAuth()
   async syncCorporateActions() {
     return this.corporateActionSyncService.syncAllFromPython();
   }
