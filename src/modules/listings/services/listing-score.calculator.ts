@@ -460,10 +460,7 @@ export class ListingScoreCalculator {
 
     for (let quarter = 1; quarter <= latestQuarter; quarter++) {
       const row = currentYearRows.get(quarter);
-      const value = row ? this.toNumber(metric === 'eps' ? row.eps : row.revenue) : null;
-      if (value === null) {
-        return null;
-      }
+      const value = row ? (this.toNumber(metric === 'eps' ? row.eps : row.revenue) ?? 0) : 0;
 
       currentTotal += value;
       currentSources.push({
@@ -476,10 +473,7 @@ export class ListingScoreCalculator {
 
     for (let quarter = latestQuarter + 1; quarter <= 4; quarter++) {
       const carryRow = previousYearRows.get(quarter);
-      const carryValue = carryRow ? this.toNumber(metric === 'eps' ? carryRow.eps : carryRow.revenue) : null;
-      if (carryValue === null) {
-        return null;
-      }
+      const carryValue = carryRow ? (this.toNumber(metric === 'eps' ? carryRow.eps : carryRow.revenue) ?? 0) : 0;
 
       currentTotal += carryValue;
       currentSources.push({
@@ -619,7 +613,7 @@ export class ListingScoreCalculator {
     companyId: string,
   ): Promise<number | null> {
     if (val == null || val === 0) {
-      return val ?? null;
+      return 0;
     }
 
     let marketCap: number | null = null;
@@ -684,14 +678,14 @@ export class ListingScoreCalculator {
   }
 
   private toNumber(value: any): number | null {
-    if (value === null || value === undefined) return null;
+    if (value === null || value === undefined) return 0;
     if (typeof value === 'number') return value;
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
   private toText(value: any): string | null {
-    if (value === null || value === undefined) return null;
+    if (value === null || value === undefined) return '0';
     return String(value);
   }
 
