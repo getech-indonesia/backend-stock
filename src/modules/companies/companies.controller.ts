@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 
 import { AdminAuth } from '../../common/decorators/admin-auth.decorator';
 import { AdminCompaniesQueryDto } from './dto/admin-companies-query.dto';
@@ -12,5 +12,10 @@ export class CompaniesController {
   @Get()
   async getAllCompanies(@Query() query: AdminCompaniesQueryDto) {
     return this.companiesService.findAllAdmin(query);
+  }
+
+  @Get(':id')
+  async getCompany(@Param('id') id: string) {
+    return this.companiesService.findOneAdmin(id);
   }
 }

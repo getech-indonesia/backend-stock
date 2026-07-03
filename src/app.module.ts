@@ -19,6 +19,7 @@ import { GroveFormulasModule } from './modules/grove-formulas/grove-formulas.mod
 import { FinancialStatementsModule } from './modules/financial-statements/financial-statements.module';
 import { SectorsModule } from './modules/sectors/sectors.module';
 import { IndustriesModule } from './modules/industries/industries.module';
+import { ShareholdingsModule } from './modules/shareholdings/shareholdings.module';
 
 function isEnabled(value: string | undefined, defaultValue = true): boolean {
   if (value == null) {
@@ -64,6 +65,7 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
       FinancialStatementsModule,
       SectorsModule,
       IndustriesModule,
+      ShareholdingsModule,
     ];
   })(),
 })

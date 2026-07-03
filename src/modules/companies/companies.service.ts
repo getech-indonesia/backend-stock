@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -93,6 +93,47 @@ export class CompaniesService {
         totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
       },
     };
+  }
+
+  async findOneAdmin(id: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id },
+      include: {
+        country: true,
+        industry: {
+          include: {
+            sector: true,
+          },
+        },
+        listings: {
+          orderBy: {
+            symbol: 'asc',
+          },
+          select: {
+            id: true,
+            symbol: true,
+            isin: true,
+            cusip: true,
+            assetType: true,
+            ipoDate: true,
+            exchange: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                exchangeType: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException(`Company with ID ${id} not found`);
+    }
+
+    return this.mapCompany(company);
   }
 
   private mapCompany(company: any) {
