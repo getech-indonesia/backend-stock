@@ -17,6 +17,8 @@ import { PubExModule } from './modules/pubex/pubex.module';
 import { StocksModule } from './modules/stocks/stocks.module';
 import { GroveFormulasModule } from './modules/grove-formulas/grove-formulas.module';
 import { FinancialStatementsModule } from './modules/financial-statements/financial-statements.module';
+import { SectorsModule } from './modules/sectors/sectors.module';
+import { IndustriesModule } from './modules/industries/industries.module';
 
 function isEnabled(value: string | undefined, defaultValue = true): boolean {
   if (value == null) {
@@ -60,6 +62,8 @@ function isEnabled(value: string | undefined, defaultValue = true): boolean {
       GroveFormulasModule,
       StocksModule,
       FinancialStatementsModule,
+      SectorsModule,
+      IndustriesModule,
     ];
   })(),
 })
