@@ -327,9 +327,36 @@ model Listing {
     // StockPrice relasi ke Listing (bukan Company) supaya harga per-bursa terpisah
     stockPrices      StockPrice[]
     ajaibStockMarket AjaibStockMarket?
+    listingScore     ListingScore?
 
     @@unique([symbol, exchangeId])
     @@map("listings")
+}
+
+model ListingScore {
+    id             String   @id @default(uuid())
+    listingId      String   @unique
+    modelVersion   String
+    gScore         Decimal? @db.Decimal(10, 2)
+    rScore         Decimal? @db.Decimal(10, 2)
+    oScore         Decimal? @db.Decimal(10, 2)
+    vScore         Decimal? @db.Decimal(10, 2)
+    eScore         Decimal? @db.Decimal(10, 2)
+    totalScore     Decimal  @db.Decimal(10, 2)
+    stance         String
+    breakdown      Json
+    sourceUpdatedAt DateTime?
+    dataHash       String?
+    calculatedAt   DateTime @default(now())
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
+
+    listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+    @@index([totalScore])
+    @@index([stance])
+    @@index([calculatedAt])
+    @@map("listing_scores")
 }
 
 model AjaibStockMarket {

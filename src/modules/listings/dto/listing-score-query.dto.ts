@@ -1,5 +1,5 @@
-﻿import { Transform, Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListingScoreQueryDto {
   @IsOptional()
@@ -32,4 +32,18 @@ export class ListingScoreQueryDto {
   @IsOptional()
   @IsString()
   sectorId?: string;
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  sortOrder?: 'asc' | 'desc';
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
+  sort?: 'asc' | 'desc';
 }

@@ -1,16 +1,17 @@
-﻿import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+﻿import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { AssetType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminListingsQueryDto } from './dto/admin-listings-query.dto';
-import { ListingScoreCalculator } from './services/listing-score.calculator';
+import { ListingScoreQueryDto } from './dto/listing-score-query.dto';
 
 @Injectable()
 export class ListingsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly scoreCalculator: ListingScoreCalculator,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAllAdmin(query: AdminListingsQueryDto) {
     const page = query.page ?? 1;
@@ -231,11 +232,12 @@ export class ListingsService {
     });
   }
 
-  async getListingScores(query: any) {
+  async getListingScores(query: ListingScoreQueryDto) {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
     const keyword = query.keyword?.trim() ?? query.q?.trim();
+    const sortOrder = query.sortOrder ?? query.sort ?? 'desc';
 
     const filters: Prisma.ListingWhereInput[] = [];
 
@@ -248,7 +250,7 @@ export class ListingsService {
               mode: 'insensitive',
             },
           },
-                    {
+          {
             company: {
               OR: [
                 {
@@ -293,29 +295,47 @@ export class ListingsService {
           }
         : undefined;
 
-    const [items, total] = await Promise.all([
-      this.prisma.listing.findMany({
-        where,
+    const scoreWhere: Prisma.ListingScoreWhereInput | undefined = where
+      ? {
+          listing: where,
+        }
+      : undefined;
+
+    const [scores, total] = await Promise.all([
+      this.prisma.listingScore.findMany({
+        where: scoreWhere,
         skip,
         take: pageSize,
-        orderBy: { symbol: 'asc' },
+        orderBy: [{ totalScore: sortOrder }, { listing: { symbol: 'asc' } }],
         select: {
-          id: true,
-          symbol: true,
-          companyId: true,
-          company: {
+          listingId: true,
+          gScore: true,
+          rScore: true,
+          oScore: true,
+          vScore: true,
+          eScore: true,
+          totalScore: true,
+          stance: true,
+          breakdown: true,
+          listing: {
             select: {
               id: true,
-              displayName: true,
-              logoUrl: true,
-              industry: {
+              symbol: true,
+              company: {
                 select: {
                   id: true,
-                  name: true,
-                  sector: {
+                  displayName: true,
+                  logoUrl: true,
+                  industry: {
                     select: {
                       id: true,
                       name: true,
+                      sector: {
+                        select: {
+                          id: true,
+                          name: true,
+                        },
+                      },
                     },
                   },
                 },
@@ -324,48 +344,31 @@ export class ListingsService {
           },
         },
       }),
-      this.prisma.listing.count({ where }),
+      this.prisma.listingScore.count({ where: scoreWhere }),
     ]);
 
-    // Calculate scores for each listing
-    const itemsWithScores = await Promise.all(
-      items.map(async (item) => {
-        const gScore = await this.scoreCalculator.calculateGScore(item.companyId);
-
-        return {
-          symbol: item.symbol,
-          companyName: item.company.displayName,
-          companyLogoUrl: item.company.logoUrl,
-          sector: item.company.industry?.sector
-            ? {
-                id: item.company.industry.sector.id,
-                name: item.company.industry.sector.name,
-              }
-            : null,
-          g: gScore.score,
-          r: null,
-          o: null,
-          v: null,
-          e: null,
-          score: gScore.score,
-          stance: this.getStance(gScore.score),
-          scoreBreakdown: {
-            g: {
-              score: gScore.score,
-              maxScore: gScore.maxScore,
-              details: gScore.details,
-            },
-            r: this.buildNotImplementedPillar(),
-            o: this.buildNotImplementedPillar(),
-            v: this.buildNotImplementedPillar(),
-            e: this.buildNotImplementedPillar(),
-          },
-        };
-      }),
-    );
+    const items = scores.map((score) => ({
+      symbol: score.listing.symbol,
+      companyName: score.listing.company.displayName,
+      companyLogoUrl: score.listing.company.logoUrl,
+      sector: score.listing.company.industry?.sector
+        ? {
+            id: score.listing.company.industry.sector.id,
+            name: score.listing.company.industry.sector.name,
+          }
+        : null,
+      g: this.toNumber(score.gScore),
+      r: this.toNumber(score.rScore),
+      o: this.toNumber(score.oScore),
+      v: this.toNumber(score.vScore),
+      e: this.toNumber(score.eScore),
+      score: this.toNumber(score.totalScore) ?? 0,
+      stance: score.stance,
+      scoreBreakdown: score.breakdown,
+    }));
 
     return {
-      items: itemsWithScores,
+      items,
       pagination: {
         page,
         pageSize,
@@ -375,18 +378,12 @@ export class ListingsService {
     };
   }
 
-  private buildNotImplementedPillar() {
-    return {
-      score: null,
-      maxScore: 0,
-      details: null,
-      status: 'not_implemented',
-    };
-  }
-  private getStance(score: number): string {
-    if (score >= 70) return 'Overweight';
-    if (score >= 55) return 'Neutral';
-    return 'Underweight';
+  private toNumber(value: Prisma.Decimal | number | string | null) {
+    if (value === null) {
+      return null;
+    }
+
+    return Number(value);
   }
 
   private async updateListingById(
@@ -505,7 +502,9 @@ export class ListingsService {
 
   private normalizePayloads(body: unknown): Record<string, unknown>[] {
     if (!body || typeof body !== 'object') {
-      throw new BadRequestException('Request body must be an object or an array of objects');
+      throw new BadRequestException(
+        'Request body must be an object or an array of objects',
+      );
     }
 
     if (Array.isArray(body)) {
@@ -515,7 +514,9 @@ export class ListingsService {
 
       return body.map((item, index) => {
         if (!item || typeof item !== 'object' || Array.isArray(item)) {
-          throw new BadRequestException(`Item at index ${index} must be an object`);
+          throw new BadRequestException(
+            `Item at index ${index} must be an object`,
+          );
         }
 
         return item as Record<string, unknown>;
@@ -525,20 +526,39 @@ export class ListingsService {
     return [body as Record<string, unknown>];
   }
 
-  private buildCreateData(body: Record<string, unknown>): Prisma.ListingUncheckedCreateInput {
-    const requiredFields = ['symbol', 'assetType', 'companyId', 'exchangeId'] as const;
+  private buildCreateData(
+    body: Record<string, unknown>,
+  ): Prisma.ListingUncheckedCreateInput {
+    const requiredFields = [
+      'symbol',
+      'assetType',
+      'companyId',
+      'exchangeId',
+    ] as const;
 
     for (const field of requiredFields) {
-      if (body[field] === undefined || body[field] === null || body[field] === '') {
+      if (
+        body[field] === undefined ||
+        body[field] === null ||
+        body[field] === ''
+      ) {
         throw new BadRequestException(`Field ${field} is required`);
       }
     }
 
-    return this.buildListingData(body, true) as Prisma.ListingUncheckedCreateInput;
+    return this.buildListingData(
+      body,
+      true,
+    ) as Prisma.ListingUncheckedCreateInput;
   }
 
-  private buildUpdateData(body: Record<string, unknown>): Prisma.ListingUncheckedUpdateInput {
-    return this.buildListingData(body, false) as Prisma.ListingUncheckedUpdateInput;
+  private buildUpdateData(
+    body: Record<string, unknown>,
+  ): Prisma.ListingUncheckedUpdateInput {
+    return this.buildListingData(
+      body,
+      false,
+    ) as Prisma.ListingUncheckedUpdateInput;
   }
 
   private buildListingData(
@@ -650,8 +670,3 @@ export class ListingsService {
     };
   }
 }
-
-
-
-
-
