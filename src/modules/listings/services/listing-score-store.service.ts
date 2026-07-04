@@ -78,46 +78,21 @@ export class ListingScoreStoreService {
       incomeStatementCount,
       balanceSheetLatest,
       balanceSheetCount,
-      sharesDataLatest,
-      sharesDataCount,
-      ajaibStockMarketLatest,
-      ajaibStockMarketCount,
+      cashFlowStatementLatest,
+      cashFlowStatementCount,
     ] = await Promise.all([
-      this.findLatestTimestamp(
-        this.prisma.incomeStatement,
-        { companyId },
-        'updatedAt',
-      ),
+      this.findLatestUpdatedAt(this.prisma.incomeStatement, { companyId }),
       this.prisma.incomeStatement.count({ where: { companyId } }),
-      this.findLatestTimestamp(
-        this.prisma.balanceSheet,
-        { companyId },
-        'updatedAt',
-      ),
+      this.findLatestUpdatedAt(this.prisma.balanceSheet, { companyId }),
       this.prisma.balanceSheet.count({ where: { companyId } }),
-      this.findLatestTimestamp(
-        this.prisma.sharesData,
-        { companyId },
-        'createdAt',
-      ),
-      this.prisma.sharesData.count({ where: { companyId } }),
-      this.findLatestTimestamp(
-        this.prisma.ajaibStockMarket,
-        { listing: { companyId } },
-        'updatedAt',
-      ),
-      this.prisma.ajaibStockMarket.count({
-        where: {
-          listing: { companyId },
-        },
-      }),
+      this.findLatestUpdatedAt(this.prisma.cashFlowStatement, { companyId }),
+      this.prisma.cashFlowStatement.count({ where: { companyId } }),
     ]);
 
     const sourceUpdatedAt = this.maxDate([
       incomeStatementLatest?.updatedAt ?? null,
       balanceSheetLatest?.updatedAt ?? null,
-      sharesDataLatest?.createdAt ?? null,
-      ajaibStockMarketLatest?.updatedAt ?? null,
+      cashFlowStatementLatest?.updatedAt ?? null,
     ]);
 
     const fingerprint = {
@@ -130,13 +105,9 @@ export class ListingScoreStoreService {
         count: balanceSheetCount,
         updatedAt: balanceSheetLatest?.updatedAt?.toISOString() ?? null,
       },
-      sharesData: {
-        count: sharesDataCount,
-        updatedAt: sharesDataLatest?.createdAt?.toISOString() ?? null,
-      },
-      ajaibStockMarket: {
-        count: ajaibStockMarketCount,
-        updatedAt: ajaibStockMarketLatest?.updatedAt?.toISOString() ?? null,
+      cashFlowStatement: {
+        count: cashFlowStatementCount,
+        updatedAt: cashFlowStatementLatest?.updatedAt?.toISOString() ?? null,
       },
     };
 
@@ -148,18 +119,17 @@ export class ListingScoreStoreService {
     };
   }
 
-  private async findLatestTimestamp(
+  private async findLatestUpdatedAt(
     model: any,
     where?: Record<string, unknown>,
-    timestampField: 'updatedAt' | 'createdAt' | 'date' = 'updatedAt',
-  ): Promise<{ updatedAt?: Date; createdAt?: Date; date?: Date } | null> {
+  ): Promise<{ updatedAt: Date } | null> {
     return model.findFirst({
       where,
       orderBy: {
-        [timestampField]: 'desc',
+        updatedAt: 'desc',
       },
       select: {
-        [timestampField]: true,
+        updatedAt: true,
       },
     });
   }
