@@ -8,10 +8,16 @@ import { AssetType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminListingsQueryDto } from './dto/admin-listings-query.dto';
 import { ListingScoreQueryDto } from './dto/listing-score-query.dto';
+import { ListingScoreCalculator } from './services/listing-score.calculator';
 
 @Injectable()
 export class ListingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly scoreModelVersion = 'grove-g-r-v4';
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly listingScoreCalculator: ListingScoreCalculator,
+  ) {}
 
   async findAllAdmin(query: AdminListingsQueryDto) {
     const page = query.page ?? 1;
@@ -239,6 +245,30 @@ export class ListingsService {
     const keyword = query.keyword?.trim() ?? query.q?.trim();
     const sortOrder = query.sortOrder ?? query.sort ?? 'desc';
 
+    const needsRBackfill = await this.prisma.listingScore.count({
+      where: {
+        OR: [
+          {
+            rScore: null,
+          },
+          {
+            totalScore: {
+              lte: 1,
+            },
+          },
+          {
+            modelVersion: {
+              not: this.scoreModelVersion,
+            },
+          },
+        ],
+      },
+    });
+
+    if (needsRBackfill > 0) {
+      await this.backfillRelativeStrengthScores();
+    }
+
     const filters: Prisma.ListingWhereInput[] = [];
 
     if (keyword) {
@@ -309,6 +339,7 @@ export class ListingsService {
         orderBy: [{ totalScore: sortOrder }, { listing: { symbol: 'asc' } }],
         select: {
           listingId: true,
+          sourceUpdatedAt: true,
           gScore: true,
           rScore: true,
           oScore: true,
@@ -321,6 +352,17 @@ export class ListingsService {
             select: {
               id: true,
               symbol: true,
+              companyId: true,
+              stockPrices: {
+                take: 2,
+                orderBy: {
+                  date: 'desc',
+                },
+                select: {
+                  date: true,
+                  close: true,
+                },
+              },
               company: {
                 select: {
                   id: true,
@@ -362,9 +404,10 @@ export class ListingsService {
       o: this.toNumber(score.oScore),
       v: this.toNumber(score.vScore),
       e: this.toNumber(score.eScore),
-      score: this.toNumber(score.totalScore) ?? 0,
+      score: Math.round(this.toNumber(score.totalScore) ?? 0),
       stance: score.stance,
       scoreBreakdown: score.breakdown,
+      latestPrice: this.buildLastPrice(score.listing.stockPrices),
     }));
 
     return {
@@ -384,6 +427,182 @@ export class ListingsService {
     }
 
     return Number(value);
+  }
+
+  private buildLastPrice(
+    stockPrices: Array<{
+      date: Date;
+      close: Prisma.Decimal;
+    }>,
+  ) {
+    const latest = stockPrices?.[0];
+    const previous = stockPrices?.[1];
+
+    if (!latest) {
+      return null;
+    }
+
+    const latestClose = latest.close;
+    const previousClose = previous?.close ?? null;
+    const change =
+      previousClose !== null ? latestClose.sub(previousClose) : null;
+    const changePct =
+      previousClose !== null && !previousClose.isZero() && change !== null
+        ? change.div(previousClose).mul(100)
+        : null;
+    const direction =
+      change === null
+        ? null
+        : change.gt(0)
+          ? 'UP'
+          : change.lt(0)
+            ? 'DOWN'
+            : 'FLAT';
+
+    return {
+      latestDate: latest.date.toISOString(),
+      latestClose: latestClose.toString(),
+      previousDate: previous?.date.toISOString() ?? null,
+      previousClose: previousClose?.toString() ?? null,
+      change: change?.toString() ?? null,
+      changePct: changePct?.toString() ?? null,
+      direction,
+    };
+  }
+
+  private isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private toPlainText(value: unknown, key: string) {
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    if (
+      typeof value === 'number' ||
+      typeof value === 'boolean' ||
+      typeof value === 'bigint'
+    ) {
+      return value.toString();
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    throw new BadRequestException(
+      `Field ${key} must be a string-compatible value`,
+    );
+  }
+
+  private toDateValue(value: unknown, key: string) {
+    if (value instanceof Date) {
+      return value;
+    }
+
+    if (typeof value === 'string' || typeof value === 'number') {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        return date;
+      }
+    }
+
+    throw new BadRequestException(`Field ${key} must be a valid date`);
+  }
+
+  private async backfillRelativeStrengthScores() {
+    const universe =
+      await this.listingScoreCalculator.calculateRScoreUniverse();
+    const groveWeights = await this.listingScoreCalculator.getGroveWeights();
+    const missingScores = await this.prisma.listingScore.findMany({
+      where: {
+        OR: [
+          {
+            rScore: null,
+          },
+          {
+            totalScore: {
+              lte: 1,
+            },
+          },
+          {
+            modelVersion: {
+              not: this.scoreModelVersion,
+            },
+          },
+        ],
+      },
+      select: {
+        listingId: true,
+        gScore: true,
+        rScore: true,
+        oScore: true,
+        vScore: true,
+        eScore: true,
+        breakdown: true,
+      },
+    });
+
+    if (missingScores.length === 0) {
+      return;
+    }
+
+    await Promise.all(
+      missingScores.map(async (row) => {
+        const rResult = universe[row.listingId];
+        if (!rResult) {
+          return;
+        }
+
+        const updatedTotal =
+          await this.listingScoreCalculator.calculateGroveWeightedTotal(
+            {
+              gScore: this.toNumber(row.gScore),
+              rScore: rResult.score,
+              oScore: this.toNumber(row.oScore),
+              vScore: this.toNumber(row.vScore),
+              eScore: this.toNumber(row.eScore),
+            },
+            groveWeights,
+          );
+        const currentBreakdown = this.isPlainObject(row.breakdown)
+          ? row.breakdown
+          : {};
+
+        await this.prisma.listingScore.update({
+          where: {
+            listingId: row.listingId,
+          },
+          data: {
+            modelVersion: this.scoreModelVersion,
+            rScore: new Prisma.Decimal(rResult.score),
+            totalScore: new Prisma.Decimal(updatedTotal),
+            stance: this.resolveStance(updatedTotal),
+            breakdown: {
+              ...currentBreakdown,
+              r: {
+                score: rResult.score,
+                maxScore: rResult.maxScore,
+                details: rResult.details,
+              },
+            },
+          },
+        });
+      }),
+    );
+  }
+
+  private resolveStance(totalScore: number) {
+    if (totalScore >= 70) {
+      return 'Overweight';
+    }
+
+    if (totalScore >= 55) {
+      return 'Neutral';
+    }
+
+    return 'Underweight';
   }
 
   private async updateListingById(
@@ -512,18 +731,28 @@ export class ListingsService {
         throw new BadRequestException('Request body array cannot be empty');
       }
 
-      return body.map((item, index) => {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      const payloads: Record<string, unknown>[] = [];
+
+      for (const [index, item] of body.entries()) {
+        if (!this.isPlainObject(item)) {
           throw new BadRequestException(
             `Item at index ${index} must be an object`,
           );
         }
 
-        return item as Record<string, unknown>;
-      });
+        payloads.push(item);
+      }
+
+      return payloads;
     }
 
-    return [body as Record<string, unknown>];
+    if (!this.isPlainObject(body)) {
+      throw new BadRequestException(
+        'Request body must be an object or an array of objects',
+      );
+    }
+
+    return [body];
   }
 
   private buildCreateData(
@@ -546,25 +775,27 @@ export class ListingsService {
       }
     }
 
-    return this.buildListingData(
-      body,
-      true,
-    ) as Prisma.ListingUncheckedCreateInput;
+    return this.buildListingData(body, true);
   }
 
   private buildUpdateData(
     body: Record<string, unknown>,
   ): Prisma.ListingUncheckedUpdateInput {
-    return this.buildListingData(
-      body,
-      false,
-    ) as Prisma.ListingUncheckedUpdateInput;
+    return this.buildListingData(body, false);
   }
 
   private buildListingData(
     body: Record<string, unknown>,
+    isCreate: true,
+  ): Prisma.ListingUncheckedCreateInput;
+  private buildListingData(
+    body: Record<string, unknown>,
+    isCreate: false,
+  ): Prisma.ListingUncheckedUpdateInput;
+  private buildListingData(
+    body: Record<string, unknown>,
     isCreate: boolean,
-  ): Record<string, unknown> {
+  ): Prisma.ListingUncheckedCreateInput | Prisma.ListingUncheckedUpdateInput {
     const data: Record<string, unknown> = {};
 
     this.setString(data, body, 'symbol', isCreate);
@@ -592,7 +823,7 @@ export class ListingsService {
       return;
     }
 
-    target[key] = String(value);
+    target[key] = this.toPlainText(value, key);
   }
 
   private setEnum(
@@ -609,7 +840,7 @@ export class ListingsService {
       return;
     }
 
-    target[key] = value;
+    target[key] = this.toPlainText(value, key);
   }
 
   private setDate(
@@ -622,7 +853,7 @@ export class ListingsService {
       return;
     }
 
-    const date = new Date(String(value));
+    const date = this.toDateValue(value, key);
     if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(`Field ${key} must be a valid date`);
     }

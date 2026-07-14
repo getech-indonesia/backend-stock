@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListingsService } from './listings.service';
+import { ListingScoreCalculator } from './services/listing-score.calculator';
 
 describe('ListingsService', () => {
   let service: ListingsService;
@@ -9,7 +11,14 @@ describe('ListingsService', () => {
     listingScore: {
       findMany: jest.fn(),
       count: jest.fn(),
+      update: jest.fn(),
     },
+  };
+
+  const mockListingScoreCalculator = {
+    calculateRScoreUniverse: jest.fn(),
+    getGroveWeights: jest.fn(),
+    calculateGroveWeightedTotal: jest.fn(),
   };
 
   const baseScoreRow = (
@@ -20,7 +29,7 @@ describe('ListingsService', () => {
   ) => ({
     listingId,
     gScore: score,
-    rScore: null,
+    rScore: score,
     oScore: null,
     vScore: null,
     eScore: null,
@@ -37,6 +46,16 @@ describe('ListingsService', () => {
     listing: {
       id: listingId,
       symbol,
+      stockPrices: [
+        {
+          date: new Date('2026-07-14T00:00:00.000Z'),
+          close: new Prisma.Decimal(score),
+        },
+        {
+          date: new Date('2026-07-13T00:00:00.000Z'),
+          close: new Prisma.Decimal(score - 1),
+        },
+      ],
       company: {
         id: companyId,
         displayName: `Company ${symbol}`,
@@ -61,6 +80,10 @@ describe('ListingsService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        {
+          provide: ListingScoreCalculator,
+          useValue: mockListingScoreCalculator,
+        },
       ],
     }).compile();
 
@@ -72,11 +95,14 @@ describe('ListingsService', () => {
   });
 
   it('reads listing scores from database and requests descending order by default', async () => {
-    mockPrismaService.listingScore.count.mockResolvedValue(3);
+    mockPrismaService.listingScore.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(3);
     mockPrismaService.listingScore.findMany.mockResolvedValue([
       baseScoreRow('listing-1', 'AAA', 'company-1', 30),
       baseScoreRow('listing-3', 'CCC', 'company-3', 20),
     ]);
+    mockListingScoreCalculator.calculateRScoreUniverse.mockResolvedValue({});
 
     const result = await service.getListingScores({
       page: 1,
@@ -89,6 +115,11 @@ describe('ListingsService', () => {
       }),
     );
     expect(result.items.map((item) => item.symbol)).toEqual(['AAA', 'CCC']);
+    expect(result.items.every((item) => item.r !== null)).toBe(true);
+    expect(result.items[0]?.latestPrice).toMatchObject({
+      latestDate: '2026-07-14T00:00:00.000Z',
+      previousDate: '2026-07-13T00:00:00.000Z',
+    });
     expect(result.pagination).toMatchObject({
       page: 1,
       pageSize: 2,
@@ -98,11 +129,14 @@ describe('ListingsService', () => {
   });
 
   it('requests ascending score order when asked', async () => {
-    mockPrismaService.listingScore.count.mockResolvedValue(3);
+    mockPrismaService.listingScore.count
+      .mockResolvedValueOnce(0)
+      .mockResolvedValueOnce(3);
     mockPrismaService.listingScore.findMany.mockResolvedValue([
       baseScoreRow('listing-2', 'BBB', 'company-2', 10),
       baseScoreRow('listing-3', 'CCC', 'company-3', 20),
     ]);
+    mockListingScoreCalculator.calculateRScoreUniverse.mockResolvedValue({});
 
     const result = await service.getListingScores({
       page: 1,
@@ -115,9 +149,6 @@ describe('ListingsService', () => {
         orderBy: [{ totalScore: 'asc' }, { listing: { symbol: 'asc' } }],
       }),
     );
-    expect(result.items.map((item) => item.symbol)).toEqual([
-      'BBB',
-      'CCC',
-    ]);
+    expect(result.items.map((item) => item.symbol)).toEqual(['BBB', 'CCC']);
   });
 });

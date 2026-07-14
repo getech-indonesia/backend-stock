@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 
 import { PrismaService } from '../../../prisma/prisma.service';
+import { ListingScoreCalculator } from './listing-score.calculator';
 
 export interface ListingScoreSnapshotInput {
   listingId: string;
@@ -20,9 +21,12 @@ export interface ListingScoreSnapshotInput {
 
 @Injectable()
 export class ListingScoreStoreService {
-  private readonly modelVersion = 'grove-g-v1';
+  private readonly modelVersion = 'grove-g-r-v4';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly listingScoreCalculator: ListingScoreCalculator,
+  ) {}
 
   async syncMany(inputs: ListingScoreSnapshotInput[]) {
     return Promise.all(inputs.map((input) => this.syncOne(input)));
@@ -31,6 +35,17 @@ export class ListingScoreStoreService {
   async syncOne(input: ListingScoreSnapshotInput) {
     const sourceSnapshot = await this.buildSourceSnapshot(input.companyId);
     const now = new Date();
+    const groveWeights = await this.listingScoreCalculator.getGroveWeights();
+    const totalScore = await this.listingScoreCalculator.calculateGroveWeightedTotal(
+      {
+        gScore: input.gScore,
+        rScore: input.rScore,
+        oScore: input.oScore,
+        vScore: input.vScore,
+        eScore: input.eScore,
+      },
+      groveWeights,
+    );
 
     return this.prisma.listingScore.upsert({
       where: {
@@ -44,7 +59,7 @@ export class ListingScoreStoreService {
         oScore: this.toDecimal(input.oScore),
         vScore: this.toDecimal(input.vScore),
         eScore: this.toDecimal(input.eScore),
-        totalScore: new Prisma.Decimal(input.totalScore),
+        totalScore: new Prisma.Decimal(totalScore),
         stance: input.stance,
         breakdown: input.breakdown,
         sourceUpdatedAt: sourceSnapshot.sourceUpdatedAt,
@@ -58,7 +73,7 @@ export class ListingScoreStoreService {
         oScore: this.toDecimal(input.oScore),
         vScore: this.toDecimal(input.vScore),
         eScore: this.toDecimal(input.eScore),
-        totalScore: new Prisma.Decimal(input.totalScore),
+        totalScore: new Prisma.Decimal(totalScore),
         stance: input.stance,
         breakdown: input.breakdown,
         sourceUpdatedAt: sourceSnapshot.sourceUpdatedAt,
@@ -119,8 +134,18 @@ export class ListingScoreStoreService {
     };
   }
 
-  private async findLatestUpdatedAt(
-    model: any,
+  private findLatestUpdatedAt(
+    model: {
+      findFirst(args: {
+        where?: Record<string, unknown>;
+        orderBy: {
+          updatedAt: 'desc';
+        };
+        select: {
+          updatedAt: true;
+        };
+      }): Promise<{ updatedAt: Date } | null>;
+    },
     where?: Record<string, unknown>,
   ): Promise<{ updatedAt: Date } | null> {
     return model.findFirst({

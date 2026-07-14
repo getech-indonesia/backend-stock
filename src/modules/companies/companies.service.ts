@@ -13,35 +13,49 @@ export class CompaniesService {
     const pageSize = query.pageSize ?? 20;
     const skip = (page - 1) * pageSize;
     const keyword = query.keyword?.trim();
+    const sectorId = query.sectorId;
 
-    const where: Prisma.CompanyWhereInput | undefined = keyword
-      ? {
-          OR: [
-            {
-              displayName: {
-                contains: keyword,
-                mode: 'insensitive',
-              },
+    const conditions: Prisma.CompanyWhereInput[] = [];
+
+    if (keyword) {
+      conditions.push({
+        OR: [
+          {
+            displayName: {
+              contains: keyword,
+              mode: 'insensitive',
             },
-            {
-              legalName: {
-                contains: keyword,
-                mode: 'insensitive',
-              },
+          },
+          {
+            legalName: {
+              contains: keyword,
+              mode: 'insensitive',
             },
-            {
-              listings: {
-                some: {
-                  symbol: {
-                    contains: keyword,
-                    mode: 'insensitive',
-                  },
+          },
+          {
+            listings: {
+              some: {
+                symbol: {
+                  contains: keyword,
+                  mode: 'insensitive',
                 },
               },
             },
-          ],
-        }
-      : undefined;
+          },
+        ],
+      });
+    }
+
+    if (sectorId) {
+      conditions.push({
+        industry: {
+          sectorId,
+        },
+      });
+    }
+
+    const where: Prisma.CompanyWhereInput | undefined =
+      conditions.length > 0 ? { AND: conditions } : undefined;
 
     const [items, total] = await Promise.all([
       this.prisma.company.findMany({

@@ -19,4 +19,8 @@ export class AdminCompaniesQueryDto {
   @IsString()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   keyword?: string;
+
+  @IsOptional()
+  @IsString()
+  sectorId?: string;
 }
