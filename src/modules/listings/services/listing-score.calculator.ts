@@ -133,7 +133,9 @@ export interface RelativeStrengthScoreResult {
       maxScore: number;
       rule: string;
       currentRank: number | null;
+      totalRanked: number;
       rank65TradingDaysAgo: number | null;
+      historicalTotalRanked: number;
       deltaRS: number | null;
       currentRSRating: number | null;
       rs65TradingDaysAgo: number | null;
@@ -550,7 +552,10 @@ export class ListingScoreCalculator {
           maxScore: this.maxRuleScore(input.r4Rules),
           rule: this.describeRuleSet(input.r4Rules, 'deltaRS'),
           currentRank: targetCurrent?.rank ?? null,
+          totalRanked: targetCurrent?.totalRanked ?? input.currentRanked.length,
           rank65TradingDaysAgo: targetHistorical?.rank ?? null,
+          historicalTotalRanked:
+            targetHistorical?.totalRanked ?? input.historicalRanked.length,
           deltaRS,
           currentRSRating: targetCurrent?.rsRating ?? null,
           rs65TradingDaysAgo: targetHistorical?.rsRating ?? null,
