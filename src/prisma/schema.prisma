@@ -395,9 +395,12 @@ model RelativeStrengthSnapshot {
     symbol         String
     scoreDate      DateTime
     modelVersion   String
+    score          Decimal  @db.Decimal(10, 2)
+    maxScore       Decimal  @db.Decimal(10, 2)
     rank           Int?
     totalRanked    Int
     rsRating       Decimal? @db.Decimal(10, 2)
+    details        Json
     rawPerformance Decimal? @db.Decimal(10, 2)
     roc63          Decimal? @db.Decimal(10, 2)
     roc126         Decimal? @db.Decimal(10, 2)

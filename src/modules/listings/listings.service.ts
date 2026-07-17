@@ -323,6 +323,33 @@ export class ListingsService {
               id: true,
               symbol: true,
               companyId: true,
+              relativeStrengthSnapshots: {
+                take: 1,
+                orderBy: {
+                  scoreDate: 'desc',
+                },
+                select: {
+                  scoreDate: true,
+                  modelVersion: true,
+                  score: true,
+                  maxScore: true,
+                  rank: true,
+                  totalRanked: true,
+                  rsRating: true,
+                  details: true,
+                  rawPerformance: true,
+                  roc63: true,
+                  roc126: true,
+                  roc189: true,
+                  roc252: true,
+                  close: true,
+                  high52: true,
+                  low52: true,
+                  distanceHighPct: true,
+                  distanceLowPct: true,
+                  sourcePeriods: true,
+                },
+              },
               stockPrices: {
                 take: 2,
                 orderBy: {
@@ -376,7 +403,10 @@ export class ListingsService {
       e: this.toNumber(score.eScore),
       score: Math.round(this.toNumber(score.totalScore) ?? 0),
       stance: score.stance,
-      scoreBreakdown: score.breakdown,
+      scoreBreakdown: this.buildScoreBreakdown(
+        score.breakdown,
+        score.listing.relativeStrengthSnapshots?.[0] ?? null,
+      ),
       latestPrice: this.buildLastPrice(score.listing.stockPrices),
     }));
 
@@ -397,6 +427,49 @@ export class ListingsService {
     }
 
     return Number(value);
+  }
+
+  private buildScoreBreakdown(
+    currentBreakdown: Prisma.JsonValue,
+    latestRSnapshot: {
+      scoreDate: Date;
+      modelVersion: string;
+      score: Prisma.Decimal | number | string;
+      maxScore: Prisma.Decimal | number | string;
+      rank: number | null;
+      totalRanked: number;
+      rsRating: Prisma.Decimal | number | string | null;
+      details: Prisma.JsonValue;
+      rawPerformance: Prisma.Decimal | number | string | null;
+      roc63: Prisma.Decimal | number | string | null;
+      roc126: Prisma.Decimal | number | string | null;
+      roc189: Prisma.Decimal | number | string | null;
+      roc252: Prisma.Decimal | number | string | null;
+      close: Prisma.Decimal | number | string | null;
+      high52: Prisma.Decimal | number | string | null;
+      low52: Prisma.Decimal | number | string | null;
+      distanceHighPct: Prisma.Decimal | number | string | null;
+      distanceLowPct: Prisma.Decimal | number | string | null;
+      sourcePeriods: Prisma.JsonValue;
+    } | null,
+  ) {
+    const base =
+      currentBreakdown && typeof currentBreakdown === 'object' && !Array.isArray(currentBreakdown)
+        ? { ...(currentBreakdown as Record<string, unknown>) }
+        : {};
+
+    if (!latestRSnapshot) {
+      return base;
+    }
+
+    return {
+      ...base,
+      r: {
+        score: this.toNumber(latestRSnapshot.score),
+        maxScore: this.toNumber(latestRSnapshot.maxScore),
+        details: latestRSnapshot.details,
+      },
+    };
   }
 
   private buildLastPrice(

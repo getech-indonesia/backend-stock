@@ -108,6 +108,7 @@ export class ListingScoreSyncService {
         totalScore: this.toNumber(row.totalScore) ?? 0,
         stance: row.stance,
         breakdown: this.mergeBreakdown(row.breakdown, {
+          pillar: 'r',
           score: rResult.score,
           maxScore: rResult.maxScore,
           details: rResult.details as unknown as Prisma.InputJsonValue,
@@ -231,6 +232,7 @@ export class ListingScoreSyncService {
 
         const baseBreakdown = currentScore
           ? this.mergeBreakdown(currentScore.breakdown, {
+              pillar: 'g',
               score: gResult.score,
               maxScore: gResult.maxScore,
               details: gResult.details as unknown as Prisma.InputJsonValue,
@@ -327,6 +329,7 @@ export class ListingScoreSyncService {
   private mergeBreakdown(
     currentBreakdown: Prisma.InputJsonValue,
     rSnapshot: {
+      pillar: 'g' | 'r';
       score: number;
       maxScore: number;
       details: Prisma.InputJsonValue;
@@ -339,7 +342,7 @@ export class ListingScoreSyncService {
 
     return {
       ...base,
-      r: {
+      [rSnapshot.pillar]: {
         score: rSnapshot.score,
         maxScore: rSnapshot.maxScore,
         details: rSnapshot.details,

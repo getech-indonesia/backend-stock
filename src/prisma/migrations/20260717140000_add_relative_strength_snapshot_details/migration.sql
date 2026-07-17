@@ -1,0 +1,4 @@
+ALTER TABLE "relative_strength_snapshots"
+ADD COLUMN "score" DECIMAL(10,2) NOT NULL DEFAULT 0,
+ADD COLUMN "maxScore" DECIMAL(10,2) NOT NULL DEFAULT 0,
+ADD COLUMN "details" JSONB NOT NULL DEFAULT '{}'::jsonb;
