@@ -3,7 +3,10 @@ import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 
 import { PrismaService } from '../../../prisma/prisma.service';
-import { ListingScoreCalculator } from './listing-score.calculator';
+import {
+  ListingScoreCalculator,
+  RelativeStrengthScoreResult,
+} from './listing-score.calculator';
 
 export interface ListingScoreSnapshotInput {
   listingId: string;
@@ -15,8 +18,20 @@ export interface ListingScoreSnapshotInput {
   vScore: number | null;
   eScore: number | null;
   totalScore: number;
-  stance: string;
+  stance?: string;
   breakdown: Prisma.InputJsonValue;
+  scoreDate?: Date;
+  sourceUpdatedAt?: Date | null;
+  dataHash?: string | null;
+}
+
+export interface RelativeStrengthSnapshotInput {
+  listingId: string;
+  companyId: string;
+  symbol: string;
+  scoreDate?: Date;
+  modelVersion: string;
+  result: RelativeStrengthScoreResult;
 }
 
 @Injectable()
@@ -28,14 +43,44 @@ export class ListingScoreStoreService {
     private readonly listingScoreCalculator: ListingScoreCalculator,
   ) {}
 
-  async syncMany(inputs: ListingScoreSnapshotInput[]) {
-    return Promise.all(inputs.map((input) => this.syncOne(input)));
+  async syncMany(
+    inputs: ListingScoreSnapshotInput[],
+    options?: {
+      groveWeights?: {
+        weightG: number;
+        weightR: number;
+        weightO: number;
+        weightV: number;
+        weightE: number;
+      };
+    },
+  ) {
+    return Promise.all(inputs.map((input) => this.syncOne(input, options)));
   }
 
-  async syncOne(input: ListingScoreSnapshotInput) {
-    const sourceSnapshot = await this.buildSourceSnapshot(input.companyId);
+  async syncOne(
+    input: ListingScoreSnapshotInput,
+    options?: {
+      groveWeights?: {
+        weightG: number;
+        weightR: number;
+        weightO: number;
+        weightV: number;
+        weightE: number;
+      };
+    },
+  ) {
     const now = new Date();
-    const groveWeights = await this.listingScoreCalculator.getGroveWeights();
+    const scoreDate = this.normalizeDay(input.scoreDate ?? now);
+    const sourceSnapshot =
+      input.sourceUpdatedAt != null && input.dataHash != null
+        ? {
+            sourceUpdatedAt: input.sourceUpdatedAt ?? null,
+            dataHash: input.dataHash ?? null,
+          }
+        : await this.buildSourceSnapshot(input.companyId);
+    const groveWeights =
+      options?.groveWeights ?? (await this.listingScoreCalculator.getGroveWeights());
     const totalScore = await this.listingScoreCalculator.calculateGroveWeightedTotal(
       {
         gScore: input.gScore,
@@ -46,41 +91,68 @@ export class ListingScoreStoreService {
       },
       groveWeights,
     );
+    const stance = input.stance ?? this.resolveStance(totalScore);
+    const modelVersion = input.modelVersion || this.modelVersion;
+    const listingScorePayload = {
+      modelVersion,
+      gScore: this.toDecimal(input.gScore),
+      rScore: this.toDecimal(input.rScore),
+      oScore: this.toDecimal(input.oScore),
+      vScore: this.toDecimal(input.vScore),
+      eScore: this.toDecimal(input.eScore),
+      totalScore: new Prisma.Decimal(totalScore),
+      stance,
+      breakdown: input.breakdown,
+      sourceUpdatedAt: sourceSnapshot.sourceUpdatedAt,
+      dataHash: sourceSnapshot.dataHash,
+      calculatedAt: now,
+    };
 
-    return this.prisma.listingScore.upsert({
+    const currentScore = await this.prisma.listingScore.upsert({
       where: {
         listingId: input.listingId,
       },
       create: {
         listingId: input.listingId,
-        modelVersion: input.modelVersion || this.modelVersion,
-        gScore: this.toDecimal(input.gScore),
-        rScore: this.toDecimal(input.rScore),
-        oScore: this.toDecimal(input.oScore),
-        vScore: this.toDecimal(input.vScore),
-        eScore: this.toDecimal(input.eScore),
-        totalScore: new Prisma.Decimal(totalScore),
-        stance: input.stance,
-        breakdown: input.breakdown,
-        sourceUpdatedAt: sourceSnapshot.sourceUpdatedAt,
-        dataHash: sourceSnapshot.dataHash,
-        calculatedAt: now,
+        ...listingScorePayload,
       },
       update: {
-        modelVersion: input.modelVersion || this.modelVersion,
-        gScore: this.toDecimal(input.gScore),
-        rScore: this.toDecimal(input.rScore),
-        oScore: this.toDecimal(input.oScore),
-        vScore: this.toDecimal(input.vScore),
-        eScore: this.toDecimal(input.eScore),
-        totalScore: new Prisma.Decimal(totalScore),
-        stance: input.stance,
-        breakdown: input.breakdown,
-        sourceUpdatedAt: sourceSnapshot.sourceUpdatedAt,
-        dataHash: sourceSnapshot.dataHash,
-        calculatedAt: now,
+        ...listingScorePayload,
       },
     });
+
+    await this.prisma.listingScoreSnapshot.upsert({
+      where: {
+        listingId_scoreDate_modelVersion: {
+          listingId: input.listingId,
+          scoreDate,
+          modelVersion,
+        },
+      },
+      create: {
+        listingId: input.listingId,
+        scoreDate,
+        ...listingScorePayload,
+      },
+      update: {
+        scoreDate,
+        ...listingScorePayload,
+      },
+    });
+
+    return currentScore;
+  }
+
+  async upsertRelativeStrengthSnapshots(
+    inputs: RelativeStrengthSnapshotInput[],
+  ) {
+    if (inputs.length === 0) {
+      return [];
+    }
+
+    return Promise.all(
+      inputs.map((input) => this.upsertRelativeStrengthSnapshot(input)),
+    );
   }
 
   async getLatestSnapshot(companyId: string) {
@@ -168,6 +240,84 @@ export class ListingScoreStoreService {
     }
 
     return new Date(Math.max(...filtered.map((value) => value.getTime())));
+  }
+
+  private normalizeDay(value: Date) {
+    return new Date(
+      Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
+    );
+  }
+
+  private async upsertRelativeStrengthSnapshot(
+    input: RelativeStrengthSnapshotInput,
+  ) {
+    const scoreDate = this.normalizeDay(input.scoreDate ?? new Date());
+    const r1 = input.result.details.r1;
+    const r2 = input.result.details.r2;
+    const r3 = input.result.details.r3;
+
+    return this.prisma.relativeStrengthSnapshot.upsert({
+      where: {
+        listingId_scoreDate_modelVersion: {
+          listingId: input.listingId,
+          scoreDate,
+          modelVersion: input.modelVersion,
+        },
+      },
+      create: {
+        listingId: input.listingId,
+        companyId: input.companyId,
+        symbol: input.symbol,
+        scoreDate,
+        modelVersion: input.modelVersion,
+        rank: r1.currentRank,
+        totalRanked: r1.totalRanked,
+        rsRating: this.toDecimal(r1.rsRating),
+        rawPerformance: this.toDecimal(r1.rawPerformance),
+        roc63: this.toDecimal(r1.roc63),
+        roc126: this.toDecimal(r1.roc126),
+        roc189: this.toDecimal(r1.roc189),
+        roc252: this.toDecimal(r1.roc252),
+        close: this.toDecimal(r2.close),
+        high52: this.toDecimal(r2.high52),
+        low52: this.toDecimal(r3.low52),
+        distanceHighPct: this.toDecimal(r2.distanceHighPct),
+        distanceLowPct: this.toDecimal(r3.distanceLowPct),
+        sourcePeriods: input.result.details.r1.sourcePeriods as unknown as Prisma.InputJsonValue,
+        calculatedAt: new Date(),
+      },
+      update: {
+        companyId: input.companyId,
+        symbol: input.symbol,
+        rank: r1.currentRank,
+        totalRanked: r1.totalRanked,
+        rsRating: this.toDecimal(r1.rsRating),
+        rawPerformance: this.toDecimal(r1.rawPerformance),
+        roc63: this.toDecimal(r1.roc63),
+        roc126: this.toDecimal(r1.roc126),
+        roc189: this.toDecimal(r1.roc189),
+        roc252: this.toDecimal(r1.roc252),
+        close: this.toDecimal(r2.close),
+        high52: this.toDecimal(r2.high52),
+        low52: this.toDecimal(r3.low52),
+        distanceHighPct: this.toDecimal(r2.distanceHighPct),
+        distanceLowPct: this.toDecimal(r3.distanceLowPct),
+        sourcePeriods: input.result.details.r1.sourcePeriods as unknown as Prisma.InputJsonValue,
+        calculatedAt: new Date(),
+      },
+    });
+  }
+
+  private resolveStance(totalScore: number) {
+    if (totalScore >= 70) {
+      return 'Overweight';
+    }
+
+    if (totalScore >= 55) {
+      return 'Neutral';
+    }
+
+    return 'Underweight';
   }
 
   private toDecimal(value: number | null) {

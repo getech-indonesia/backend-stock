@@ -8,16 +8,10 @@ import { AssetType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdminListingsQueryDto } from './dto/admin-listings-query.dto';
 import { ListingScoreQueryDto } from './dto/listing-score-query.dto';
-import { ListingScoreCalculator } from './services/listing-score.calculator';
 
 @Injectable()
 export class ListingsService {
-  private readonly scoreModelVersion = 'grove-g-r-v4';
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly listingScoreCalculator: ListingScoreCalculator,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAllAdmin(query: AdminListingsQueryDto) {
     const page = query.page ?? 1;
@@ -244,30 +238,6 @@ export class ListingsService {
     const skip = (page - 1) * pageSize;
     const keyword = query.keyword?.trim() ?? query.q?.trim();
     const sortOrder = query.sortOrder ?? query.sort ?? 'desc';
-
-    const needsRBackfill = await this.prisma.listingScore.count({
-      where: {
-        OR: [
-          {
-            rScore: null,
-          },
-          {
-            totalScore: {
-              lte: 1,
-            },
-          },
-          {
-            modelVersion: {
-              not: this.scoreModelVersion,
-            },
-          },
-        ],
-      },
-    });
-
-    if (needsRBackfill > 0) {
-      await this.backfillRelativeStrengthScores();
-    }
 
     const filters: Prisma.ListingWhereInput[] = [];
 
@@ -509,100 +479,6 @@ export class ListingsService {
     }
 
     throw new BadRequestException(`Field ${key} must be a valid date`);
-  }
-
-  private async backfillRelativeStrengthScores() {
-    const universe =
-      await this.listingScoreCalculator.calculateRScoreUniverse();
-    const groveWeights = await this.listingScoreCalculator.getGroveWeights();
-    const missingScores = await this.prisma.listingScore.findMany({
-      where: {
-        OR: [
-          {
-            rScore: null,
-          },
-          {
-            totalScore: {
-              lte: 1,
-            },
-          },
-          {
-            modelVersion: {
-              not: this.scoreModelVersion,
-            },
-          },
-        ],
-      },
-      select: {
-        listingId: true,
-        gScore: true,
-        rScore: true,
-        oScore: true,
-        vScore: true,
-        eScore: true,
-        breakdown: true,
-      },
-    });
-
-    if (missingScores.length === 0) {
-      return;
-    }
-
-    await Promise.all(
-      missingScores.map(async (row) => {
-        const rResult = universe[row.listingId];
-        if (!rResult) {
-          return;
-        }
-
-        const updatedTotal =
-          await this.listingScoreCalculator.calculateGroveWeightedTotal(
-            {
-              gScore: this.toNumber(row.gScore),
-              rScore: rResult.score,
-              oScore: this.toNumber(row.oScore),
-              vScore: this.toNumber(row.vScore),
-              eScore: this.toNumber(row.eScore),
-            },
-            groveWeights,
-          );
-        const currentBreakdown = this.isPlainObject(row.breakdown)
-          ? row.breakdown
-          : {};
-
-        await this.prisma.listingScore.update({
-          where: {
-            listingId: row.listingId,
-          },
-          data: {
-            modelVersion: this.scoreModelVersion,
-            rScore: new Prisma.Decimal(rResult.score),
-            totalScore: new Prisma.Decimal(updatedTotal),
-            stance: this.resolveStance(updatedTotal),
-            breakdown: {
-              ...currentBreakdown,
-              r: {
-                score: rResult.score,
-                maxScore: rResult.maxScore,
-                details: rResult.details,
-              },
-            },
-          },
-        });
-      }),
-    );
-  }
-
-  private resolveStance(totalScore: number) {
-    if (totalScore >= 70) {
-      return 'Overweight';
-    }
-
-    if (totalScore >= 55) {
-      return 'Neutral';
-    }
-
-    return 'Underweight';
   }
 
   private async updateListingById(

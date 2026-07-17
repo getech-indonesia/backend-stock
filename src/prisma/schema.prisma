@@ -328,6 +328,8 @@ model Listing {
     stockPrices      StockPrice[]
     ajaibStockMarket AjaibStockMarket?
     listingScore     ListingScore?
+    listingScoreSnapshots ListingScoreSnapshot[]
+    relativeStrengthSnapshots RelativeStrengthSnapshot[]
 
     @@unique([symbol, exchangeId])
     @@map("listings")
@@ -357,6 +359,67 @@ model ListingScore {
     @@index([stance])
     @@index([calculatedAt])
     @@map("listing_scores")
+}
+
+model ListingScoreSnapshot {
+    id            String   @id @default(uuid())
+    listingId     String
+    scoreDate     DateTime
+    modelVersion  String
+    gScore        Decimal? @db.Decimal(10, 2)
+    rScore        Decimal? @db.Decimal(10, 2)
+    oScore        Decimal? @db.Decimal(10, 2)
+    vScore        Decimal? @db.Decimal(10, 2)
+    eScore        Decimal? @db.Decimal(10, 2)
+    totalScore    Decimal  @db.Decimal(10, 2)
+    stance        String
+    breakdown     Json
+    sourceUpdatedAt DateTime?
+    dataHash      String?
+    calculatedAt  DateTime @default(now())
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+
+    listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+    @@unique([listingId, scoreDate, modelVersion])
+    @@index([scoreDate])
+    @@index([listingId, scoreDate])
+    @@map("listing_score_snapshots")
+}
+
+model RelativeStrengthSnapshot {
+    id             String   @id @default(uuid())
+    listingId      String
+    companyId      String
+    symbol         String
+    scoreDate      DateTime
+    modelVersion   String
+    rank           Int?
+    totalRanked    Int
+    rsRating       Decimal? @db.Decimal(10, 2)
+    rawPerformance Decimal? @db.Decimal(10, 2)
+    roc63          Decimal? @db.Decimal(10, 2)
+    roc126         Decimal? @db.Decimal(10, 2)
+    roc189         Decimal? @db.Decimal(10, 2)
+    roc252         Decimal? @db.Decimal(10, 2)
+    close          Decimal? @db.Decimal(14, 4)
+    high52         Decimal? @db.Decimal(14, 4)
+    low52          Decimal? @db.Decimal(14, 4)
+    distanceHighPct Decimal? @db.Decimal(10, 2)
+    distanceLowPct  Decimal? @db.Decimal(10, 2)
+    sourcePeriods  Json
+    calculatedAt   DateTime @default(now())
+    createdAt      DateTime @default(now())
+    updatedAt      DateTime @updatedAt
+
+    listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+    @@unique([listingId, scoreDate, modelVersion])
+    @@index([scoreDate])
+    @@index([listingId, scoreDate])
+    @@index([companyId, scoreDate])
+    @@map("relative_strength_snapshots")
 }
 
 model AjaibStockMarket {

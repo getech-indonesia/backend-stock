@@ -32,6 +32,8 @@
     "stock:sync:shares:id": "nest start --entryFile jobs/stock-sync/entrypoints/stock-sync-shares-id",
     "stock:sync:financial-statement:id": "ts-node src/jobs/stock-sync/entrypoints/stock-sync-financial-statement-id.ts",
     "stock:sync:ajaib-stock-market": "ts-node src/jobs/stock-sync/entrypoints/stock-sync-ajaib-stock-market-id.ts",
+    "listing-score:sync:r": "ts-node src/jobs/listing-score/entrypoints/listing-score-r-sync-id.ts",
+    "listing-score:sync:g": "ts-node src/jobs/listing-score/entrypoints/listing-score-g-sync-id.ts",
     "stock:test:ajaib": "ts-node test-ajaib-scrape.ts",
     "stock:sync:us": "nest start --entryFile stock-sync-us",
     "stock:sync:global": "nest start --entryFile stock-sync-global"

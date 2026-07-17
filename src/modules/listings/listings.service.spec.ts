@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListingsService } from './listings.service';
-import { ListingScoreCalculator } from './services/listing-score.calculator';
 
 describe('ListingsService', () => {
   let service: ListingsService;
@@ -13,12 +12,6 @@ describe('ListingsService', () => {
       count: jest.fn(),
       update: jest.fn(),
     },
-  };
-
-  const mockListingScoreCalculator = {
-    calculateRScoreUniverse: jest.fn(),
-    getGroveWeights: jest.fn(),
-    calculateGroveWeightedTotal: jest.fn(),
   };
 
   const baseScoreRow = (
@@ -80,10 +73,6 @@ describe('ListingsService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
-        {
-          provide: ListingScoreCalculator,
-          useValue: mockListingScoreCalculator,
-        },
       ],
     }).compile();
 
@@ -95,14 +84,11 @@ describe('ListingsService', () => {
   });
 
   it('reads listing scores from database and requests descending order by default', async () => {
-    mockPrismaService.listingScore.count
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(3);
+    mockPrismaService.listingScore.count.mockResolvedValue(3);
     mockPrismaService.listingScore.findMany.mockResolvedValue([
       baseScoreRow('listing-1', 'AAA', 'company-1', 30),
       baseScoreRow('listing-3', 'CCC', 'company-3', 20),
     ]);
-    mockListingScoreCalculator.calculateRScoreUniverse.mockResolvedValue({});
 
     const result = await service.getListingScores({
       page: 1,
@@ -129,14 +115,11 @@ describe('ListingsService', () => {
   });
 
   it('requests ascending score order when asked', async () => {
-    mockPrismaService.listingScore.count
-      .mockResolvedValueOnce(0)
-      .mockResolvedValueOnce(3);
+    mockPrismaService.listingScore.count.mockResolvedValue(3);
     mockPrismaService.listingScore.findMany.mockResolvedValue([
       baseScoreRow('listing-2', 'BBB', 'company-2', 10),
       baseScoreRow('listing-3', 'CCC', 'company-3', 20),
     ]);
-    mockListingScoreCalculator.calculateRScoreUniverse.mockResolvedValue({});
 
     const result = await service.getListingScores({
       page: 1,
